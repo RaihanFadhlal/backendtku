@@ -48,23 +48,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := models.User{
-		ID:        uuid.New(),
-		Name:      Request.Name,
-		Email:     Request.Email,
-		Password:  string(hashPassword),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	if err := h.DB.Create(&user).Error; err != nil {
-		Response.Status = false
-		Response.Message = err.Error()
-		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
-		return
-	}
-
-	token, err := middleware.GenerateToken(user.Email, 24*time.Hour)
+	token, err := middleware.GenerateToken(Request.Email, 24*time.Hour)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error : Gagal Membuat Token Verifikasi"
@@ -72,9 +56,17 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user.VerificationToken = token
+	user := &models.User{
+		ID:        uuid.New(),
+		Name:      Request.Name,
+		Email:     Request.Email,
+		Password:  string(hashPassword),
+		VerificationToken: token,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+	}
 
-	if err := h.DB.Save(&user).Error; err != nil {
+	if err := h.UserRepo.Create(user); err != nil {
 		Response.Status = false
 		Response.Message = err.Error()
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -160,15 +152,15 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var user models.User
-	if err := h.DB.Where("email = ? AND verification_token = ?", claims.Email, tokenString).First(&user).Error; err != nil {
-		helpers.ResponseJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid token"})
-		return
+	user, err := h.UserRepo.FindByEmailAndVerificationToken(claims.Email, tokenString)
+	if err != nil {
+			helpers.ResponseJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid token"})
+			return
 	}
 
 	user.IsVerified = true
 	user.VerificationToken = ""
-	if err := h.DB.Save(&user).Error; err != nil {
+	if err := h.UserRepo.Save(user); err != nil {
 		helpers.ResponseJSON(w, http.StatusInternalServerError, map[string]string{"message": "Error verifying email"})
 		return
 	}
@@ -200,8 +192,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	var user models.User
-	if err := h.DB.Where("email = ?", Request.Email).First(&user).Error; err != nil {
+	user, err := h.UserRepo.FindByEmail(Request.Email);
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Invalid email or password"
 		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
@@ -239,7 +231,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user.RefreshToken = refreshToken
-	if err := h.DB.Save(&user).Error; err != nil {
+	if err := h.UserRepo.Save(user); err != nil {
 		Response.Status = false
 		Response.Message = "Error saving refresh token"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -323,8 +315,8 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	refreshToken := cookie.Value
 
-	var user models.User
-	if err := h.DB.Where("refresh_token = ?", refreshToken).First(&user).Error; err != nil {
+	user, err:= h.UserRepo.FindByRefreshToken(refreshToken)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Invalid refresh token"
 		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
@@ -354,7 +346,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user.RefreshToken = ""
-	if err := h.DB.Save(&user).Error; err != nil {
+	if err := h.UserRepo.Save(user); err != nil {
 		Response.Status = false
 		Response.Message = "Error logging out"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -392,12 +384,12 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	var user models.User
-	if err := h.DB.Where("email = ?", email).First(&user).Error; err != nil {
-		Response.Status = false
-		Response.Message = "User not found"
-		helpers.ResponseJSON(w, http.StatusNotFound, Response)
-		return
+	user, err := h.UserRepo.FindByEmail(email)
+	if err != nil {
+			Response.Status = false
+			Response.Message = "User not found"
+			helpers.ResponseJSON(w, http.StatusNotFound, Response)
+			return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(Request.OldPassword)); err != nil {
@@ -416,12 +408,12 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user.Password = string(hashedPassword)
-	if err := h.DB.Save(&user).Error; err != nil {
+	if err := h.UserRepo.Save(user); err != nil {
 		Response.Status = false
 		Response.Message = "Error updating password"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
-	}
+}
 
 	Response.Status = true
 	Response.Message = "Password changed successfully"

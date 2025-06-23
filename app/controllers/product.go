@@ -1,11 +1,11 @@
 package controllers
 
 import (
+	"backendtku/app/helpers"
+	"backendtku/app/repositories"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"backendtku/app/helpers"
-	"backendtku/app/models"
 )
 
 func (h *Handler) GetProducts(w http.ResponseWriter, r *http.Request) {
@@ -21,16 +21,8 @@ func (h *Handler) GetProducts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	country := r.URL.Query().Get("country")
-
-	var products []models.ProductSafari
-	query := h.DB.Where("code LIKE ?", "%B1")
-
-	if country != "" {
-		countryFilter := "%" + country + "%"
-		query = query.Where("countries LIKE ?", countryFilter)
-	}
-
-	if err := query.Find(&products).Error; err != nil {
+	products, err := h.ProductRepo.FindAllSafari(country)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving products"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -57,32 +49,16 @@ func (h *Handler) GetProducts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
-	type PricePeriod struct {
-		DayMin int `json:"day_min"`
-		DayMax int `json:"day_max"`
-		Price  int `json:"price"`
-	}
-
 	type PriceDetails struct {
-		Basic    []PricePeriod `json:"basic"`
-		Gold     []PricePeriod `json:"gold"`
-		Platinum []PricePeriod `json:"platinum"`
-		Titanium []PricePeriod `json:"titanium"`
+		Basic    []repositories.PricePeriod `json:"basic"`
+		Gold     []repositories.PricePeriod `json:"gold"`
+		Platinum []repositories.PricePeriod `json:"platinum"`
+		Titanium []repositories.PricePeriod `json:"titanium"`
 	}
-
-	type BenefitDetail struct {
-		Detail   string `json:"detail"`
-		Basic    string `json:"basic"`
-		Gold     string `json:"gold"`
-		Platinum string `json:"platinum"`
-		Titanium string `json:"titanium"`
-	}
-
 	type BenefitCategory struct {
-		Desc   string          `json:"desc"`
-		Detail []BenefitDetail `json:"detail"`
+		Desc   string                       `json:"desc"`
+		Detail []repositories.BenefitDetail `json:"detail"`
 	}
-
 	type Response struct {
 		Status  bool   `json:"status"`
 		Message string `json:"message"`
@@ -104,20 +80,16 @@ func (h *Handler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var product models.ProductSafari
-	if err := h.DB.Where("code = ?", id).First(&product).Error; err != nil {
+	product, err := h.ProductRepo.FindSafariByCode(id)
+	if err != nil {
 		helpers.ResponseJSON(w, http.StatusNotFound, map[string]string{"message": "Product not found"})
 		return
 	}
 
 	groupCode := id[:len(id)-2]
 
-	var contributions []string
-
-	if err := h.DB.Model(&models.ProductSafari{}).
-		Distinct("contribution").
-		Where("group_code = ?", groupCode).
-		Pluck("contribution", &contributions).Error; err != nil {
+	contributions, err := h.ProductRepo.FindSafariContributionsByGroupCode(groupCode)
+	if err != nil {
 		http.Error(w, "Failed to retrieve contributions", http.StatusInternalServerError)
 		return
 	}
@@ -125,12 +97,7 @@ func (h *Handler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
 	var priceDetails PriceDetails
 	priceCategories := []string{"Basic", "Gold", "Platinum", "Titanium"}
 	for _, category := range priceCategories {
-		var prices []PricePeriod
-		h.DB.Table("product_safaris").Select("day_min, day_max, price").
-			Where("group_code = ? AND contribution = ?", groupCode, category).
-			Order("day_min ASC").
-			Scan(&prices)
-
+		prices, _ := h.ProductRepo.FindSafariPriceDetails(groupCode, category)
 		switch category {
 		case "Basic":
 			priceDetails.Basic = prices
@@ -144,14 +111,9 @@ func (h *Handler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var benefits []BenefitCategory
-	var distinctDesc []string
-	h.DB.Table("product_benefit_safaris").Select("distinct COALESCE(description, '-') as desc").Where("group_code = ?", groupCode).Scan(&distinctDesc)
+	distinctDesc, _ := h.ProductRepo.FindDistinctSafariBenefitDescriptions(groupCode)
 	for _, desc := range distinctDesc {
-		var benefitDetails []BenefitDetail
-		h.DB.Table("product_benefit_safaris").Select("COALESCE(detail, '-') as detail, COALESCE(basic, '-') as basic, COALESCE(gold, '-') as gold, COALESCE(platinum, '-') as platinum, COALESCE(titanium, '-') as titanium").
-			Where("group_code = ? AND description = ?", groupCode, desc).
-			Scan(&benefitDetails)
-
+		benefitDetails, _ := h.ProductRepo.FindSafariBenefitDetails(groupCode, desc)
 		benefits = append(benefits, BenefitCategory{
 			Desc:   desc,
 			Detail: benefitDetails,
@@ -182,203 +144,163 @@ func (h *Handler) GetAbrorDetail(w http.ResponseWriter, r *http.Request) {
 		A2         float32 `json:"a2"`
 		A3         float32 `json:"a3"`
 	}
-
 	type PriceDetails struct {
 		Standard []PricePeriod `json:"standard"`
 		Premium  []PricePeriod `json:"premium"`
 	}
-
 	type BenefitDetail struct {
 		Standard string `json:"standard"`
 		Premium  string `json:"premium"`
 	}
-
 	type BenefitCategory struct {
 		Desc   string          `json:"desc"`
 		Type   string          `json:"type"`
 		Detail []BenefitDetail `json:"detail"`
 	}
-
 	type Cars struct {
 		Brand string   `json:"brand"`
 		Type  []string `json:"type"`
 	}
-
-	type Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Name        string            `json:"name"`
-			Description string            `json:"desc"`
-			Image       string            `json:"image"`
-			Terms       string            `json:"terms"`
-			Cars        []Cars            `json:"cars"`
-			Price       PriceDetails      `json:"price"`
-			Benefits    []BenefitCategory `json:"benefits"`
-		} `json:"data"`
+	type ResponseData struct {
+		Name        string            `json:"name"`
+		Description string            `json:"desc"`
+		Image       string            `json:"image"`
+		Terms       string            `json:"terms"`
+		Cars        []Cars            `json:"cars"`
+		Price       PriceDetails      `json:"price"`
+		Benefits    []BenefitCategory `json:"benefits"`
 	}
-	var response Response
-	response.Status = true
-	response.Message = "Success"
-
-	var product models.ProductAbror
-	if err := h.DB.Where("id = '1'").Find(&product).Error; err != nil {
-		response.Status = false
-		response.Message = "Error retrieving products"
-		helpers.ResponseJSON(w, http.StatusInternalServerError, response)
-		return
+	var Response struct {
+		Status  bool         `json:"status"`
+		Message string       `json:"message"`
+		Data    ResponseData `json:"data"`
 	}
 
-	response.Data.Name = product.Name
-	response.Data.Description = product.Description
-	response.Data.Image = h.Config.BaseUrl + "/upload/product/" + product.Image
-	response.Data.Terms = product.AllowedVehicle
-
-	var productAbror models.ProductAbror
-	if err := h.DB.Find(&productAbror).Error; err != nil {
-		response.Status = false
-		response.Message = "Error fetching vehicle types"
-		helpers.ResponseJSON(w, http.StatusInternalServerError, response)
-		return
+	handleError := func(msg string) {
+		Response.Status = false
+		Response.Message = msg
+		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 	}
 
-	var vehicleTypes []models.VehicleType
-	if err := h.DB.Find(&vehicleTypes).Error; err != nil {
-		response.Status = false
-		response.Message = "Error fetching vehicle types"
-		helpers.ResponseJSON(w, http.StatusInternalServerError, response)
-		return
-	}
-
-	fetchAndMapProductAbrors := func(typeName string) (map[string]map[string]float32, error) {
-		var productAbrors []models.ProductAbror
-		if err := h.DB.Where("type_name = ?", typeName).Find(&productAbrors).Error; err != nil {
-			return nil, err
-		}
-		productAbrorMap := make(map[string]map[string]float32)
-		for _, pa := range productAbrors {
-			if _, exists := productAbrorMap[pa.VehicleCode]; !exists {
-				productAbrorMap[pa.VehicleCode] = make(map[string]float32)
-			}
-			productAbrorMap[pa.VehicleCode][pa.RegionCode] = pa.Percentage
-		}
-		return productAbrorMap, nil
-	}
-
-	populatePriceDetails := func(typeName string, productAbrorMap map[string]map[string]float32) []PricePeriod {
-		var pricePeriods []PricePeriod
-		for _, vt := range vehicleTypes {
-			pp := PricePeriod{
-				C:          vt.Code,
-				RangePrice: fmt.Sprintf("(%d-%d)", vt.Min, vt.Max),
-				A1:         productAbrorMap[vt.Code]["A1"],
-				A2:         productAbrorMap[vt.Code]["A2"],
-				A3:         productAbrorMap[vt.Code]["A3"],
-			}
-			pricePeriods = append(pricePeriods, pp)
-		}
-		return pricePeriods
-	}
-
-	standardProductAbrorMap, err := fetchAndMapProductAbrors("Standard")
+	product, err := h.ProductRepo.FindFirstAbror()
 	if err != nil {
-		response.Status = false
-		response.Message = "Error fetching product abrors for Standard"
-		helpers.ResponseJSON(w, http.StatusInternalServerError, response)
+		handleError("Error retrieving base product")
 		return
 	}
-	response.Data.Price.Standard = populatePriceDetails("Standard", standardProductAbrorMap)
+	Response.Data.Name = product.Name
+	Response.Data.Description = product.Description
+	Response.Data.Image = h.Config.BaseUrl + "/upload/product/" + product.Image
+	Response.Data.Terms = product.AllowedVehicle
 
-	premiumProductAbrorMap, err := fetchAndMapProductAbrors("Premium")
+	vehicleTypes, err := h.ProductRepo.FindAllVehicleTypes()
 	if err != nil {
-		response.Status = false
-		response.Message = "Error fetching product abrors for Premium"
-		helpers.ResponseJSON(w, http.StatusInternalServerError, response)
-		return
-	}
-	response.Data.Price.Premium = populatePriceDetails("Premium", premiumProductAbrorMap)
-
-	var brands []string
-	if err := h.DB.Model(&models.Car{}).Distinct().Pluck("brand", &brands).Error; err != nil {
-		response.Status = false
-		response.Message = "Error fetching car brands"
-		helpers.ResponseJSON(w, http.StatusInternalServerError, response)
+		handleError("Error fetching vehicle types")
 		return
 	}
 
-	var cars []Cars
+	standardProducts, err := h.ProductRepo.FindAbrorProductsByTypeName("Standard")
+	if err != nil {
+		handleError("Error fetching standard products")
+		return
+	}
+	standardProductMap := make(map[string]map[string]float32)
+	for _, pa := range standardProducts {
+		if _, exists := standardProductMap[pa.VehicleCode]; !exists {
+			standardProductMap[pa.VehicleCode] = make(map[string]float32)
+		}
+		standardProductMap[pa.VehicleCode][pa.RegionCode] = pa.Percentage
+	}
+	for _, vt := range vehicleTypes {
+		Response.Data.Price.Standard = append(Response.Data.Price.Standard, PricePeriod{
+			C:          vt.Code,
+			RangePrice: fmt.Sprintf("(%d-%d)", vt.Min, vt.Max),
+			A1:         standardProductMap[vt.Code]["A1"],
+			A2:         standardProductMap[vt.Code]["A2"],
+			A3:         standardProductMap[vt.Code]["A3"],
+		})
+	}
+
+	premiumProducts, err := h.ProductRepo.FindAbrorProductsByTypeName("Premium")
+	if err != nil {
+		handleError("Error fetching premium products")
+		return
+	}
+	premiumProductMap := make(map[string]map[string]float32)
+	for _, pa := range premiumProducts {
+		if _, exists := premiumProductMap[pa.VehicleCode]; !exists {
+			premiumProductMap[pa.VehicleCode] = make(map[string]float32)
+		}
+		premiumProductMap[pa.VehicleCode][pa.RegionCode] = pa.Percentage
+	}
+	for _, vt := range vehicleTypes {
+		Response.Data.Price.Premium = append(Response.Data.Price.Premium, PricePeriod{
+			C:          vt.Code,
+			RangePrice: fmt.Sprintf("(%d-%d)", vt.Min, vt.Max),
+			A1:         premiumProductMap[vt.Code]["A1"],
+			A2:         premiumProductMap[vt.Code]["A2"],
+			A3:         premiumProductMap[vt.Code]["A3"],
+		})
+	}
+
+	brands, err := h.ProductRepo.FindAllCarBrands()
+	if err != nil {
+		handleError("Error fetching car brands")
+		return
+	}
 	for _, brand := range brands {
-		var types []string
-		if err := h.DB.Model(&models.Car{}).Where("brand = ?", brand).Pluck("name", &types).Error; err != nil {
-			response.Status = false
-			response.Message = "Error fetching car types for brand " + brand
-			helpers.ResponseJSON(w, http.StatusInternalServerError, response)
+		types, err := h.ProductRepo.FindCarTypesByBrand(brand)
+		if err != nil {
+			handleError("Error fetching car types for brand " + brand)
 			return
 		}
-		cars = append(cars, Cars{
+		Response.Data.Cars = append(Response.Data.Cars, Cars{
 			Brand: brand,
 			Type:  types,
 		})
 	}
-	response.Data.Cars = cars
 
-	var benefitCategories []BenefitCategory
-
-	var benefits []models.ProductBenefitAbror
-	if err := h.DB.Find(&benefits).Error; err != nil {
-		response.Status = false
-		response.Message = "Error fetching benefits"
-		helpers.ResponseJSON(w, http.StatusInternalServerError, response)
+	benefits, err := h.ProductRepo.FindAllAbrorBenefits()
+	if err != nil {
+		handleError("Error fetching benefits")
 		return
 	}
-
 	benefitMap := make(map[string]BenefitCategory)
-
 	for _, benefit := range benefits {
-		key := benefit.Description + "_" + benefit.Type 
+		key := benefit.Description + "_" + benefit.Type
 		if category, exists := benefitMap[key]; exists {
-			benefitDetail := BenefitDetail{
-				Standard: benefit.Standard,
-				Premium:  benefit.Premium,
-			}
-			category.Detail = append(category.Detail, benefitDetail)
+			category.Detail = append(category.Detail, BenefitDetail{Standard: benefit.Standard, Premium: benefit.Premium})
 			benefitMap[key] = category
 		} else {
-			benefitDetail := BenefitDetail{
-				Standard: benefit.Standard,
-				Premium:  benefit.Premium,
-			}
-			benefitCategory := BenefitCategory{
+			benefitMap[key] = BenefitCategory{
 				Desc:   benefit.Description,
 				Type:   benefit.Type,
-				Detail: []BenefitDetail{benefitDetail},
+				Detail: []BenefitDetail{{Standard: benefit.Standard, Premium: benefit.Premium}},
 			}
-			benefitMap[key] = benefitCategory
 		}
 	}
-
 	for _, category := range benefitMap {
-		benefitCategories = append(benefitCategories, category)
+		Response.Data.Benefits = append(Response.Data.Benefits, category)
 	}
 
-	response.Data.Benefits = benefitCategories
-	helpers.ResponseJSON(w, http.StatusOK, response)
+	Response.Status = true
+	Response.Message = "Product details retrieved successfully"
+	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetAbrorPrice(w http.ResponseWriter, r *http.Request) {
 	var Request struct {
 		Contribution string `json:"contribution"`
 		Type         string `json:"type"`
-		PlatCode     string  `json:"plat_code"`
+		PlatCode     string `json:"plat_code"`
 	}
 	var Response struct {
 		Status  bool   `json:"status"`
 		Message string `json:"message"`
 		Data    struct {
-			ProductCode  string `json:"product_code"`
-			Price int    `json:"price"`
-			Percentage float32 `json:"percentage"`
-			VehiclePrice int `json:"vehicle_price"`
+			ProductCode  string  `json:"product_code"`
+			Price        int     `json:"price"`
+			Percentage   float32 `json:"percentage"`
+			VehiclePrice int     `json:"vehicle_price"`
 		} `json:"data"`
 	}
 
@@ -391,18 +313,16 @@ func (h *Handler) GetAbrorPrice(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	var vehicle models.Car
-	if err := h.DB.Where("name = ?",
-		Request.Type,).First(&vehicle).Error; err != nil {
+	vehicle, err := h.ProductRepo.FindCarByName(Request.Type)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving car"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
-	var vehicleType models.VehicleType
-	if err := h.DB.Where("min <= ? AND max >= ?",
-		vehicle.Price, vehicle.Price).First(&vehicleType).Error; err != nil {
+	vehicleType, err := h.ProductRepo.FindVehicleTypeByPrice(int64(vehicle.Price))
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving car type"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -410,25 +330,23 @@ func (h *Handler) GetAbrorPrice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	plat := helpers.ExtractPlateCode(Request.PlatCode)
-	var region models.Region
-	query := `SELECT * FROM regions WHERE ? = ANY(string_to_array(plat, ','))`
-	if err := h.DB.Raw(query, plat).Scan(&region).Error; err != nil {
+	region, err := h.ProductRepo.FindRegionByPlat(plat)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving region"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
-	var product models.ProductAbror
-	if err := h.DB.Where("type_name = ? AND region_code = ? AND vehicle_code = ? ",
-		Request.Contribution, region.Code, vehicleType.Code).First(&product).Error; err != nil {
+	product, err := h.ProductRepo.FindAbrorProductByCriteria(Request.Contribution, region.Code, vehicleType.Code)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving product"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
-	price := product.Percentage/100 * float32(vehicle.Price)
+	price := product.Percentage / 100 * float32(vehicle.Price)
 
 	Response.Data.ProductCode = product.Code
 	Response.Data.Price = int(price)
@@ -460,9 +378,8 @@ func (h *Handler) GetDayMax(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	var price models.ProductSafari
-	if err := h.DB.Where("group_code = ?",
-		Request.GroupCode).Order("day_max desc").First(&price).Error; err != nil {
+	price, err := h.ProductRepo.FindSafariWithMaxDay(Request.GroupCode)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving product"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -484,15 +401,7 @@ func (h *Handler) GetCountries(w http.ResponseWriter, r *http.Request) {
 		} `json:"data"`
 	}
 
-	var result struct {
-		Countries string
-	}
-
-	err := h.DB.Model(&models.ProductSafari{}).
-		Select("countries").
-		Order("LENGTH(countries) DESC").
-		Limit(1).
-		Scan(&result).Error
+	countries, err := h.ProductRepo.FindLongestCountries()
 
 	if err != nil {
 		Response.Status = false
@@ -501,7 +410,7 @@ func (h *Handler) GetCountries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Response.Data.Countries = result.Countries
+	Response.Data.Countries = countries
 	Response.Status = true
 	Response.Message = "Country retrieved successfully"
 	helpers.ResponseJSON(w, http.StatusOK, Response)
@@ -514,17 +423,12 @@ func (h *Handler) GetCars(w http.ResponseWriter, r *http.Request) {
 		Data    []string `json:"data"`
 	}
 
-	var cars []models.Car
-	if err := h.DB.Select("name").Find(&cars).Error; err != nil {
+	carNames, err := h.ProductRepo.FindAllCarNames()
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving car names"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
-	}
-
-	var carNames []string
-	for _, car := range cars {
-		carNames = append(carNames, car.Name)
 	}
 
 	Response.Status = true
@@ -557,9 +461,8 @@ func (h *Handler) GetSafariPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer r.Body.Close()
-	var product models.ProductSafari
-	if err := h.DB.Where("group_code = ? AND contribution = ? AND day_min <= ? AND day_max >= ?",
-		Request.GroupCode, Request.Type, Request.Period, Request.Period).First(&product).Error; err != nil {
+	product, err := h.ProductRepo.FindSafariPrice(Request.GroupCode, Request.Type, Request.Period)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving product"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)

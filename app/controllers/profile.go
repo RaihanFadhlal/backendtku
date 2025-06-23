@@ -10,7 +10,6 @@ import (
 	"strings"
 	"backendtku/app/helpers"
 	"backendtku/app/middleware"
-	"backendtku/app/models"
 )
 
 func (h *Handler) GetUserProfile(w http.ResponseWriter, r *http.Request) {
@@ -31,13 +30,13 @@ func (h *Handler) GetUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	var user models.User
 
-	if err := h.DB.Where("email = ?", email).First(&user).Error; err != nil {
-		Response.Status = false
-		Response.Message = "User not found"
-		helpers.ResponseJSON(w, http.StatusNotFound, Response)
-		return
+	user, err := h.UserRepo.FindByEmail(email)
+	if err != nil {
+			Response.Status = false
+			Response.Message = "User not found"
+			helpers.ResponseJSON(w, http.StatusNotFound, Response)
+			return
 	}
 
 	Response.Status = true
@@ -73,8 +72,9 @@ func (h *Handler) UpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	var user models.User
-	if err := h.DB.Where("email = ?", email).First(&user).Error; err != nil {
+	
+	user, err := h.UserRepo.FindByEmail(email)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "User not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -103,14 +103,15 @@ func (h *Handler) UpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 
 		var count int64
 		for {
-			if err := h.DB.Model(&models.User{}).Where("image = ?", imageName).Count(&count).Error; err != nil {
-				Response.Status = false
-				Response.Message = "Error checking image name"
-				helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
-				return
+			isTaken, err := h.UserRepo.IsImageNameTaken(imageName)
+			if err != nil {
+					Response.Status = false
+					Response.Message = "Error checking image name"
+					helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+					return
 			}
-			if count == 0 {
-				break
+			if !isTaken {
+					break
 			}
 			count++
 			imageName = fmt.Sprintf("ProfilePict-%s%d%s", strings.ReplaceAll(user.Name, " ", ""), count, imageFormat)
@@ -135,12 +136,12 @@ func (h *Handler) UpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.DB.Save(&user).Error; err != nil {
+	if err := h.UserRepo.Save(user); err != nil {
 		Response.Status = false
 		Response.Message = "Failed to update user"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
-	}
+}
 
 	Response.Status = true
 	Response.Message = "User profile updated successfully"

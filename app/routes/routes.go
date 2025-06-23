@@ -1,11 +1,12 @@
 package routes
 
 import (
-	"log"
-	"net/http"
 	"backendtku/app/controllers"
 	"backendtku/app/middleware"
+	"backendtku/app/repositories"
 	"backendtku/config"
+	"log"
+	"net/http"
 
 	"github.com/gorilla/mux"
 	"gorm.io/gorm"
@@ -17,21 +18,24 @@ func InitializeRoutes(router *mux.Router, db *gorm.DB) {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
+	userRepo := repositories.NewUserRepository(db)
+	productRepo := repositories.NewProductRepository(db)
+	enrollRepo := repositories.NewEnrollmentRepository(db)
 	middleware.InitRedis()
 	middleware.InitMidtrans()
-	handler := controllers.NewHandler(db, cfg)
+	handler := controllers.NewHandler(db, cfg, userRepo, productRepo, enrollRepo)
 	router.HandleFunc("/", handler.Home).Methods("GET")
 
 	//auth
 	router.HandleFunc("/register", handler.Register).Methods("POST")
-    router.HandleFunc("/verify", handler.VerifyEmail).Methods("GET")
+	router.HandleFunc("/verify", handler.VerifyEmail).Methods("GET")
 	router.HandleFunc("/login", handler.Login).Methods("POST")
 	router.HandleFunc("/refresh-token", handler.RefreshToken).Methods("POST")
 	router.Handle("/change-pass", middleware.Authenticate(http.HandlerFunc(handler.ChangePassword))).Methods("POST")
 	router.Handle("/logout", middleware.Authenticate(http.HandlerFunc(handler.Logout))).Methods("POST")
 
 	//product safari
-    router.HandleFunc("/products", handler.GetProducts).Methods("GET")
+	router.HandleFunc("/products", handler.GetProducts).Methods("GET")
 	router.HandleFunc("/detail", handler.GetProductDetail).Methods("GET")
 	router.HandleFunc("/countries", handler.GetCountries).Methods("GET")
 	router.HandleFunc("/get-price", handler.GetSafariPrice).Methods("POST")
@@ -59,13 +63,12 @@ func InitializeRoutes(router *mux.Router, db *gorm.DB) {
 	router.Handle("/get-policies-abror", middleware.Authenticate(http.HandlerFunc(handler.GetPoliciesAbror))).Methods("POST")
 	router.Handle("/download-pdf", middleware.Authenticate(http.HandlerFunc(handler.DownloadPdf))).Methods("POST")
 
-	//claim 
+	//claim
 	router.Handle("/req-claim", middleware.Authenticate(http.HandlerFunc(handler.RequestClaim))).Methods("POST")
 	router.Handle("/get-claim", middleware.Authenticate(http.HandlerFunc(handler.GetClaim))).Methods("POST")
 	router.Handle("/req-claim-abror", middleware.Authenticate(http.HandlerFunc(handler.RequestClaimAbror))).Methods("POST")
 	router.Handle("/get-claim-abror", middleware.Authenticate(http.HandlerFunc(handler.GetClaimAbror))).Methods("POST")
 	router.Handle("/get-claim-detail", middleware.Authenticate(http.HandlerFunc(handler.GetClaimDetail))).Methods("POST")
-	
 
 	//media
 	router.PathPrefix("/upload/product/").Handler(http.StripPrefix("/upload/product/", http.FileServer(http.Dir("./upload/product"))))
@@ -77,4 +80,4 @@ func InitializeRoutes(router *mux.Router, db *gorm.DB) {
 	router.Handle("/get-claim-sfr", middleware.Authenticate(http.HandlerFunc(handler.GetClaimSafariAll))).Methods("POST")
 	router.Handle("/get-claim-abr", middleware.Authenticate(http.HandlerFunc(handler.GetClaimAbrorAll))).Methods("POST")
 	router.Handle("/update-claim/{type}", middleware.Authenticate(http.HandlerFunc(handler.UpdateClaim))).Methods("PUT")
-}	
+}

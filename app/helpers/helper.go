@@ -1,6 +1,7 @@
 package helpers
 
 import (
+	"backendtku/app/models"
 	"encoding/json"
 	"log"
 	"math/rand"
@@ -8,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"backendtku/app/models"
 	"time"
 	"unicode"
 
@@ -60,15 +60,16 @@ func SendEmail(to, subject, body string) error {
 }
 
 func GetTypeBase64(data string) (feedback string) {
-	if data[0:4] == "/9j/" {
+	switch data[0:4] {
+	case "/9j/":
 		feedback = ".jpg"
-	} else if data[0:4] == "iVBO" {
+	case "iVBO":
 		feedback = ".png"
-	} else if data[0:4] == "R0lG" {
+	case "R0lG":
 		feedback = ".gif"
-	} else if data[0:4] == "JVBE" {
+	case "JVBE":
 		feedback = ".pdf"
-	} else {
+	default:
 		feedback = ".zip"
 	}
 	return
@@ -117,7 +118,7 @@ func GetMarotoAbror(id string, brand string, car string, plat string, name strin
 		row.New(23).Add(
 			image.NewFromFileCol(4, "upload/policy/header1.png"),
 			image.NewFromFileCol(6, "upload/policy/header2.png", props.Rect{Percent: 80, Top: 3, Left: 20})),
-		row.New(10).Add(text.NewCol(12, "Polis Takaful Abror " + brand + " " + car + " " + plat, props.Text{Align: align.Center, Top: 5, Style: fontstyle.Bold, Size: 12})))
+		row.New(10).Add(text.NewCol(12, "Polis Takaful Abror "+brand+" "+car+" "+plat, props.Text{Align: align.Center, Top: 5, Style: fontstyle.Bold, Size: 12})))
 
 	if errHeader != nil {
 		log.Fatal(errHeader)
@@ -205,7 +206,7 @@ func GetMarotoAbror(id string, brand string, car string, plat string, name strin
 			text.NewCol(4, "TOTAL ", props.Text{Size: 10, Style: fontstyle.Bold, Align: align.Right, Top: 3, Right: 10}).WithStyle(colStyle),
 			text.NewCol(1, ":", props.Text{Size: 10, Style: fontstyle.Bold, Top: 3}).WithStyle(colStyle),
 			text.NewCol(7, FormatMoney(price), props.Text{Size: 10, Align: align.Right, Style: fontstyle.Bold, Top: 3}).WithStyle(colStyle),
-		), 
+		),
 		row.New(20).Add(
 			text.NewCol(6, " ", props.Text{Size: 10, Top: 5}).WithStyle(colStyle),
 		),
@@ -228,39 +229,38 @@ func GetMarotoAbror(id string, brand string, car string, plat string, name strin
 		row.New(10).Add(
 			text.NewCol(7, "Raihan Fadhlal Aziz", props.Text{Size: 10}).WithStyle(colStyle),
 		),
-		row.New(10).Add(text.NewCol(12, "Detail Kendaraan", props.Text{Align: align.Center, Top: 5, Style: fontstyle.Bold, Size: 12})) ,
+		row.New(10).Add(text.NewCol(12, "Detail Kendaraan", props.Text{Align: align.Center, Top: 5, Style: fontstyle.Bold, Size: 12})),
 		row.New(10).Add(
-			text.NewCol(7, "Nomor Mesin : " + engine, props.Text{Size: 10}).WithStyle(colStyle),
+			text.NewCol(7, "Nomor Mesin : "+engine, props.Text{Size: 10}).WithStyle(colStyle),
 		),
 		row.New(10).Add(
-			text.NewCol(7, "Nomor Rangka : " + chassis, props.Text{Size: 10}).WithStyle(colStyle),
+			text.NewCol(7, "Nomor Rangka : "+chassis, props.Text{Size: 10}).WithStyle(colStyle),
 		),
 		row.New(10).Add(
 			text.NewCol(7, "Kondisi Awal	: ", props.Text{Size: 10}).WithStyle(colStyle),
 		),
 		row.New(50).Add(
-			image.NewFromFileCol(3, "upload/enroll/" + img1, props.Rect{
+			image.NewFromFileCol(3, "upload/enroll/"+img1, props.Rect{
 				Center:  false,
 				Percent: 80,
 				Top:     5,
 			}),
-			image.NewFromFileCol(3, "upload/enroll/" + img2, props.Rect{
+			image.NewFromFileCol(3, "upload/enroll/"+img2, props.Rect{
 				Center:  false,
 				Percent: 80,
 				Top:     5,
 			}),
-			image.NewFromFileCol(3, "upload/enroll/" + img3, props.Rect{
+			image.NewFromFileCol(3, "upload/enroll/"+img3, props.Rect{
 				Center:  false,
 				Percent: 80,
 				Top:     5,
 			}),
-			image.NewFromFileCol(3, "upload/enroll/" + img4, props.Rect{
+			image.NewFromFileCol(3, "upload/enroll/"+img4, props.Rect{
 				Center:  false,
 				Percent: 80,
 				Top:     5,
 			}),
 		),
-
 	)
 	return m
 }

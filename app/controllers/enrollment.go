@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"backendtku/app/helpers"
@@ -47,10 +48,6 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var trx models.Transaction
-	var trxa models.TransactionAbror
-	var err error
-
 	createSnapRequest := func(orderID string, totalPrice int64, productCode string, productPrice int64, capacity int32, productName string) {
 		req := &snap.Request{
 			TransactionDetails: midtrans.TransactionDetails{
@@ -86,7 +83,7 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if Request.TrxId[3] == 'S' {
-		err = h.DB.Where("registrant_id = ? AND transaction_id = ? AND status = 'Menunggu Pembayaran'", email, Request.TrxId).First(&trx).Error
+		trx, err := h.EnrollRepo.FindTransactionByID(Request.TrxId, email)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
@@ -95,7 +92,7 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		}
 		createSnapRequest(trx.TransactionId, int64(trx.TotalPrice), trx.ProductCode, int64(trx.ProductPrice), int32(trx.Capacity), trx.ProductName)
 	} else {
-		err = h.DB.Where("registrant_id = ? AND transaction_id = ? AND status = 'Menunggu Pembayaran'", email, Request.TrxId).First(&trxa).Error
+		trxa, err := h.EnrollRepo.FindTransactionAbrorByID(Request.TrxId, email)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
@@ -204,11 +201,8 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var count int64
-	h.DB.Model(&models.ProductSafari{}).Where("code = ? AND contribution = ? AND price = ? AND day_min <= ? AND day_max >= ?",
-		Request.ProductCode, Request.Contribution, Request.ProductPrice, totalDays, totalDays).Count(&count)
-
-	if count == 0 {
+	count, err := h.EnrollRepo.CountMatchingSafariProduct(Request.ProductCode, Request.Contribution, Request.ProductPrice, totalDays)
+	if err != nil || count == 0 {
 		Response.Status = false
 		Response.Message = "No matching product found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -226,7 +220,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	transaction := models.Transaction{
+	transaction := &models.Transaction{
 		ID:            uuid.New(),
 		TransactionId: transactionId,
 		RegistrantId:  email,
@@ -240,7 +234,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		ExpiredAt:     time.Now().Add(24 * time.Hour),
 	}
 
-	if err := h.DB.Create(&transaction).Error; err != nil {
+	if err := h.EnrollRepo.CreateTransaction(transaction); err != nil {
 		Response.Status = false
 		Response.Message = "Error saving transaction: " + err.Error()
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -256,7 +250,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	enrollment := models.EnrollmentSafari{
+	enrollment := &models.EnrollmentSafari{
 		ID:            uuid.New(),
 		EnrollmentId:  enrollmentId,
 		RegistrantId:  email,
@@ -279,7 +273,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		Passport:      Request.Passport,
 	}
 
-	if err := h.DB.Create(&enrollment).Error; err != nil {
+	if err := h.EnrollRepo.CreateEnrollment(enrollment); err != nil {
 		Response.Status = false
 		Response.Message = "Error saving enrollment: " + err.Error()
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -296,7 +290,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		otherEnrollment := models.EnrollmentSafari{
+		otherEnrollment := &models.EnrollmentSafari{
 			ID:            uuid.New(),
 			EnrollmentId:  otherEnrollmentId,
 			RegistrantId:  email,
@@ -315,7 +309,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 			Birthdate:     other.Birthdate,
 		}
 
-		if err := h.DB.Create(&otherEnrollment).Error; err != nil {
+		if err := h.EnrollRepo.CreateEnrollment(otherEnrollment); err != nil {
 			Response.Status = false
 			Response.Message = "Error saving additional enrollment: " + err.Error()
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -347,8 +341,8 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	var trx models.Transaction
-	if err := h.DB.Where("registrant_id = ? AND transaction_id = ?", email, Request.TrxId).First(&trx).Error; err != nil {
+	trx, err := h.EnrollRepo.FindTransactionForStatusUpdate(Request.TrxId, email)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Transaction not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -375,7 +369,7 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 
 	if status == "expire" || status == "deny" || status == "cancel" {
 		trx.Status = "Gagal"
-		if err := h.DB.Save(&trx).Error; err != nil {
+		if err := h.EnrollRepo.SaveTransaction(trx); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to update transaction status"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -389,15 +383,15 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 
 	if status == "settlement" {
 		trx.Status = "Berhasil"
-		if err := h.DB.Save(&trx).Error; err != nil {
+		if err := h.EnrollRepo.SaveTransaction(trx); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to update transaction status"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
 
-		var enroll models.EnrollmentSafari
-		if err := h.DB.Where("registrant_id = ? AND transaction_id = ? AND LENGTH(phone) > 0", email, Request.TrxId).First(&enroll).Error; err != nil {
+		enroll, err := h.EnrollRepo.FindMainEnrollmentByTxID(Request.TrxId, email)
+		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
 			helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -409,16 +403,16 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 
 		group := enroll.ProductCode[:len(enroll.ProductCode)-2]
 
-		var product models.ProductSafari
-		if err := h.DB.Where("group_code = ?", group).First(&product).Error; err != nil {
+		product, err := h.ProductRepo.FindSafariProductByGroupCode(group)
+		if err != nil {
 			Response.Status = false
 			Response.Message = "Product not found"
 			helpers.ResponseJSON(w, http.StatusNotFound, Response)
 			return
 		}
 
-		var benefits []models.ProductBenefitSafari
-		if err := h.DB.Where("group_code = ?", product.GroupCode).Find(&benefits).Error; err != nil {
+		benefits, err := h.ProductRepo.FindSafariBenefitsByGroupCode(product.GroupCode)
+		if err != nil {
 			Response.Status = false
 			Response.Message = "Benefits not found"
 			helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -446,8 +440,8 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		var others []models.EnrollmentSafari
-		if err := h.DB.Where("registrant_id = ? AND transaction_id = ?", email, Request.TrxId).Find(&others).Error; err != nil {
+		others, err := h.EnrollRepo.FindAllEnrollmentsByTxID(Request.TrxId, email)
+		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
 			helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -465,9 +459,7 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 			log.Fatal(err.Error())
 		}
 
-		if err := h.DB.Model(&models.EnrollmentSafari{}).
-			Where("registrant_id = ? AND transaction_id = ?", email, Request.TrxId).
-			Update("policy_id", policyId).Error; err != nil {
+		if err := h.EnrollRepo.UpdateEnrollmentsPolicyID(Request.TrxId, email, policyId); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to save policies"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -507,17 +499,8 @@ func (h *Handler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	query := h.DB.Where("registrant_id = ? AND LENGTH(phone) > 0 AND LENGTH(policy_id) > 0", email)
-
-	if Request.Destination != "" {
-		query = query.Where("destination = ?", Request.Destination)
-	}
-	if Request.ProductName != "" {
-		query = query.Where("product_name = ?", Request.ProductName)
-	}
-
-	var enrolls []models.EnrollmentSafari
-	if err := query.Order("created_at DESC").Find(&enrolls).Error; err != nil {
+	enrolls, err := h.EnrollRepo.FindAllPolicies(email, Request.ProductName, Request.Destination)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving products"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -665,7 +648,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	transaction := models.TransactionAbror{
+	transaction := &models.TransactionAbror{
 		ID:            uuid.New(),
 		TransactionId: transactionId,
 		RegistrantId:  email,
@@ -679,7 +662,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		ExpiredAt:     time.Now().Add(24 * time.Hour),
 	}
 
-	if err := h.DB.Create(&transaction).Error; err != nil {
+	if err := h.EnrollRepo.CreateTransactionAbror(transaction); err != nil {
 		Response.Status = false
 		Response.Message = "Error saving transaction: " + err.Error()
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -717,7 +700,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		imageNames = append(imageNames, imageName)
 	}
 
-	enrollment := models.EnrollmentAbror{
+	enrollment := &models.EnrollmentAbror{
 		ID:            uuid.New(),
 		EnrollmentId:  enrollmentId,
 		RegistrantId:  email,
@@ -746,7 +729,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		IdUser:        imageNames[4],
 	}
 
-	if err := h.DB.Create(&enrollment).Error; err != nil {
+	if err := h.EnrollRepo.CreateEnrollmentAbror(enrollment); err != nil {
 		Response.Status = false
 		Response.Message = "Error saving enrollment: " + err.Error()
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -805,7 +788,7 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 
 	if status == "expire" || status == "deny" || status == "cancel" {
 		trx.Status = "Gagal"
-		if err := h.DB.Save(&trx).Error; err != nil {
+		if err := h.EnrollRepo.SaveTransactionAbror(&trx); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to update transaction status"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -819,15 +802,15 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 
 	if status == "settlement" {
 		trx.Status = "Berhasil"
-		if err := h.DB.Save(&trx).Error; err != nil {
+		if err := h.EnrollRepo.SaveTransactionAbror(&trx); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to update transaction status"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
 
-		var enroll models.EnrollmentAbror
-		if err := h.DB.Where("registrant_id = ? AND transaction_id = ? AND LENGTH(phone) > 0", email, Request.TrxId).First(&enroll).Error; err != nil {
+		enroll, err := h.EnrollRepo.FindMainEnrollmentAbrorByTxID(Request.TrxId, email)
+		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
 			helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -871,9 +854,7 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 			log.Fatal(err.Error())
 		}
 
-		if err := h.DB.Model(&models.EnrollmentAbror{}).
-			Where("registrant_id = ? AND transaction_id = ?", email, Request.TrxId).
-			Update("policy_id", policyId).Error; err != nil {
+		if err := h.EnrollRepo.UpdateEnrollmentsAbrorPolicyID(Request.TrxId, email, policyId); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to save policies"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -913,17 +894,8 @@ func (h *Handler) GetPoliciesAbror(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	query := h.DB.Where("registrant_id = ? AND LENGTH(phone) > 0 AND LENGTH(policy_id) > 0", email)
-
-	if Request.CarType != "" {
-		query = query.Where("car_type = ?", Request.CarType)
-	}
-	if Request.DateStart != "" {
-		query = query.Where("date_start = ?", Request.DateStart)
-	}
-
-	var enrolls []models.EnrollmentAbror
-	if err := query.Order("created_at DESC").Find(&enrolls).Error; err != nil {
+	enrolls, err := h.EnrollRepo.FindAllPoliciesAbror(email, Request.CarType, Request.DateStart)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving products"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -991,83 +963,43 @@ func (h *Handler) GetTrx(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	handleTransactions := func(query *gorm.DB, productTable string, isSafari bool) error {
-		var trxs []models.Transaction
-		if err := query.Order("created_at DESC").Find(&trxs).Error; err != nil {
-			return err
-		}
+	safariTrx, err1 := h.EnrollRepo.FindSafariTransactions(email, Request.Status, Request.ProductName)
+	abrorTrx, err2 := h.EnrollRepo.FindAbrorTransactions(email, Request.Status, Request.ProductName)
 
-		for _, trx := range trxs {
-			var product interface{}
-			if isSafari {
-				product = &models.ProductSafari{}
-			} else {
-				product = &models.ProductAbror{}
-			}
-
-			productQuery := h.DB.Table(productTable).Where("name = ? AND LENGTH(image) > 0", trx.ProductName)
-			if err := productQuery.Find(product).Error; err != nil {
-				return err
-			}
-
-			var image string
-			if isSafari {
-				image = product.(*models.ProductSafari).Image
-			} else {
-				image = product.(*models.ProductAbror).Image
-			}
-
-			Response.Data = append(Response.Data, struct {
-				TransactionId string `json:"transaction_id"`
-				ProductName   string `json:"product_name"`
-				TotalPrice    int    `json:"total_price"`
-				CreatedAt     string `json:"created_at"`
-				ExpiredAt     string `json:"expired_at"`
-				Status        string `json:"status"`
-				Image         string `json:"image"`
-			}{
-				TransactionId: trx.TransactionId,
-				ProductName:   trx.ProductName,
-				TotalPrice:    trx.TotalPrice,
-				CreatedAt:     trx.CreatedAt.Format("2006-01-02 15:04:05"),
-				ExpiredAt:     trx.ExpiredAt.Format("2006-01-02 15:04:05"),
-				Status:        trx.Status,
-				Image:         h.Config.BaseUrl + "/upload/product/" + image,
-			})
-		}
-		return nil
-	}
-
-	query1 := h.DB.Where("registrant_id = ?", email)
-	if Request.Status != "" {
-		query1 = query1.Where("status = ?", Request.Status)
-	}
-	if Request.ProductName != "" {
-		query1 = query1.Where("product_name = ?", Request.ProductName)
-	}
-	if err := handleTransactions(query1.Model(&models.Transaction{}), "product_safaris", true); err != nil {
+	if err1 != nil || err2 != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving transactions"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
-	query2 := h.DB.Where("registrant_id = ?", email)
-	if Request.Status != "" {
-		query2 = query2.Where("status = ?", Request.Status)
-	}
-	if Request.ProductName != "" {
-		query2 = query2.Where("product_name = ?", Request.ProductName)
-	}
-	if err := handleTransactions(query2.Model(&models.TransactionAbror{}), "product_abrors", false); err != nil {
-		Response.Status = false
-		Response.Message = "Error retrieving transactions2"
-		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
-		return
+	allTrx := append(safariTrx, abrorTrx...)
+	sort.Slice(allTrx, func(i, j int) bool {
+		return allTrx[i].CreatedAt.After(allTrx[j].CreatedAt)
+	})
+
+	for _, trx := range allTrx {
+		Response.Data = append(Response.Data, struct {
+			TransactionId string `json:"transaction_id"`
+			ProductName   string `json:"product_name"`
+			TotalPrice    int    `json:"total_price"`
+			CreatedAt     string `json:"created_at"`
+			ExpiredAt     string `json:"expired_at"`
+			Status        string `json:"status"`
+			Image         string `json:"image"`
+		}{
+			TransactionId: trx.TransactionId,
+			ProductName:   trx.ProductName,
+			TotalPrice:    trx.TotalPrice,
+			CreatedAt:     trx.CreatedAt.Format("2006-01-02 15:04:05"),
+			ExpiredAt:     trx.ExpiredAt.Format("2006-01-02 15:04:05"),
+			Status:        trx.Status,
+			Image:         h.Config.BaseUrl + "/upload/product/" + trx.Image,
+		})
 	}
 
 	Response.Status = true
-	Response.Message = "Products retrieved successfully"
+	Response.Message = "Transactions retrieved successfully"
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
