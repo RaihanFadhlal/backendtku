@@ -25,10 +25,13 @@ type EnrollmentRepository interface {
 	CreateTransactionAbror(trx *models.TransactionAbror) error
 	SaveTransaction(trx *models.Transaction) error
 	SaveTransactionAbror(trx *models.TransactionAbror) error
-  FindSafariTransactions(email, status, productName string) ([]TransactionWithImage, error)
-  FindAbrorTransactions(email, status, productName string) ([]TransactionWithImage, error)
+	FindSafariTransactions(email, status, productName string) ([]TransactionWithImage, error)
+	FindAbrorTransactions(email, status, productName string) ([]TransactionWithImage, error)
 	FindTransactionForStatusUpdate(trxID, email string) (*models.Transaction, error)
-	
+	FindTransactionAbrorForStatusUpdate(trxID, email string) (*models.TransactionAbror, error)
+	IsTransactionIDTaken(id string) (bool, error)
+	IsTransactionAbrorIDTaken(id string) (bool, error)
+
 	// Enrollment
 	CreateEnrollment(enrollment *models.EnrollmentSafari) error
 	CreateEnrollmentAbror(enrollment *models.EnrollmentAbror) error
@@ -39,6 +42,9 @@ type EnrollmentRepository interface {
 	UpdateEnrollmentsAbrorPolicyID(txID, email, policyID string) error
 	FindAllPolicies(email, productName, destination string) ([]models.EnrollmentSafari, error)
 	FindAllPoliciesAbror(email, carType, dateStart string) ([]models.EnrollmentAbror, error)
+	IsEnrollmentIDTaken(id string) (bool, error)
+	FindPolicyForDownload(policyID, email string) (*models.EnrollmentSafari, error)
+	FindPolicyAbrorForDownload(policyID, email string) (*models.EnrollmentAbror, error)
 
 	// Validation
 	CountMatchingSafariProduct(code, contribution string, price int64, totalDays int) (int64, error)
@@ -147,7 +153,7 @@ func (r *enrollmentRepository) UpdateEnrollmentsPolicyID(txID, email, policyID s
 }
 
 func (r *enrollmentRepository) UpdateEnrollmentsAbrorPolicyID(txID, email, policyID string) error {
-    return r.db.Model(&models.EnrollmentAbror{}).Where("registrant_id = ? AND transaction_id = ?", email, txID).Update("policy_id", policyID).Error
+	return r.db.Model(&models.EnrollmentAbror{}).Where("registrant_id = ? AND transaction_id = ?", email, txID).Update("policy_id", policyID).Error
 }
 
 func (r *enrollmentRepository) FindAllPolicies(email, productName, destination string) ([]models.EnrollmentSafari, error) {
@@ -164,7 +170,7 @@ func (r *enrollmentRepository) FindAllPolicies(email, productName, destination s
 }
 
 func (r *enrollmentRepository) FindAllPoliciesAbror(email, carType, dateStart string) ([]models.EnrollmentAbror, error) {
-    query := r.db.Where("registrant_id = ? AND LENGTH(phone) > 0 AND LENGTH(policy_id) > 0", email)
+	query := r.db.Where("registrant_id = ? AND LENGTH(phone) > 0 AND LENGTH(policy_id) > 0", email)
 	if carType != "" {
 		query = query.Where("car_type = ?", carType)
 	}
@@ -185,6 +191,51 @@ func (r *enrollmentRepository) CountMatchingSafariProduct(code, contribution str
 
 func (r *enrollmentRepository) FindTransactionForStatusUpdate(trxID, email string) (*models.Transaction, error) {
 	var trx models.Transaction
+	err := r.db.Where("registrant_id = ? AND transaction_id = ?", email, trxID).First(&trx).Error
+	return &trx, err
+}
+
+func (r *enrollmentRepository) FindPolicyForDownload(policyID, email string) (*models.EnrollmentSafari, error) {
+	var enroll models.EnrollmentSafari
+	err := r.db.Where("registrant_id = ? AND policy_id = ?", email, policyID).First(&enroll).Error
+	return &enroll, err
+}
+
+func (r *enrollmentRepository) FindPolicyAbrorForDownload(policyID, email string) (*models.EnrollmentAbror, error) {
+	var enrollAbror models.EnrollmentAbror
+	err := r.db.Where("registrant_id = ? AND policy_id = ?", email, policyID).First(&enrollAbror).Error
+	return &enrollAbror, err
+}
+
+func (r *enrollmentRepository) IsTransactionIDTaken(id string) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.Transaction{}).Where("transaction_id = ?", id).Count(&count).Error
+	if err != nil {
+		return true, err
+	}
+	return count > 0, nil
+}
+
+func (r *enrollmentRepository) IsTransactionAbrorIDTaken(id string) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.TransactionAbror{}).Where("transaction_id = ?", id).Count(&count).Error
+	if err != nil {
+		return true, err
+	}
+	return count > 0, nil
+}
+
+func (r *enrollmentRepository) IsEnrollmentIDTaken(id string) (bool, error) {
+	var count int64
+	err := r.db.Model(&models.EnrollmentSafari{}).Where("enrollment_id = ?", id).Count(&count).Error
+	if err != nil {
+		return true, err
+	}
+	return count > 0, nil
+}
+
+func (r *enrollmentRepository) FindTransactionAbrorForStatusUpdate(trxID, email string) (*models.TransactionAbror, error) {
+	var trx models.TransactionAbror
 	err := r.db.Where("registrant_id = ? AND transaction_id = ?", email, trxID).First(&trx).Error
 	return &trx, err
 }

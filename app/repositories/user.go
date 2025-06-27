@@ -12,6 +12,7 @@ type UserRepository interface {
 	Save(user *models.User) error
 	IsImageNameTaken(imageName string) (bool, error)
 	FindByEmailAndVerificationToken(email, token string) (*models.User, error)
+	FindNameByEmail(email string) (string, error)
 }
 
 type userRepository struct {
@@ -60,4 +61,12 @@ func (r *userRepository) FindByEmailAndVerificationToken(email, token string) (*
 			return nil, err
 	}
 	return &user, nil
+}
+
+func (r *userRepository) FindNameByEmail(email string) (string, error) {
+	var user models.User
+	if err := r.db.Where("email = ?", email).Select("name").First(&user).Error; err != nil {
+		return "", err
+	}
+	return user.Name, nil
 }

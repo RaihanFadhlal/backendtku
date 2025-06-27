@@ -27,8 +27,11 @@ type AbrorPricePeriod struct {
 	A3         float32 `json:"a3"`
 }
 
-type ProductRepository interface { // Untuk GetProducts
+type ProductRepository interface {
+	// For GetProducts
 	FindAllSafari(country string) ([]models.ProductSafari, error)
+	FindProductImageByName(name string) (string, error)
+	FindProductAbrorImageByName(name string) (string, error)
 
 	// GetProductDetail
 	FindSafariByCode(code string) (*models.ProductSafari, error)
@@ -65,6 +68,7 @@ type ProductRepository interface { // Untuk GetProducts
 
 	FindSafariProductByGroupCode(groupCode string) (*models.ProductSafari, error)
 	FindSafariBenefitsByGroupCode(groupCode string) ([]models.ProductBenefitSafari, error)
+	FindAllAbrorBenefit() ([]models.ProductBenefitAbror, error)
 }
 
 type productRepository struct {
@@ -216,5 +220,29 @@ func (r *productRepository) FindSafariProductByGroupCode(groupCode string) (*mod
 func (r *productRepository) FindSafariBenefitsByGroupCode(groupCode string) ([]models.ProductBenefitSafari, error) {
 	var benefits []models.ProductBenefitSafari
 	err := r.db.Where("group_code = ?", groupCode).Find(&benefits).Error
+	return benefits, err
+}
+
+func (r *productRepository) FindProductImageByName(name string) (string, error) {
+	var product models.ProductSafari
+	err := r.db.Where("name = ? AND LENGTH(image) > 0", name).First(&product).Error
+	if err != nil {
+		return "", err
+	}
+	return product.Image, nil
+}
+
+func (r *productRepository) FindProductAbrorImageByName(name string) (string, error) {
+	var product models.ProductAbror
+	err := r.db.Where("name = ? AND LENGTH(image) > 0", name).First(&product).Error
+	if err != nil {
+		return "", err
+	}
+	return product.Image, nil
+}
+
+func (r *productRepository) FindAllAbrorBenefit() ([]models.ProductBenefitAbror, error) {
+	var benefits []models.ProductBenefitAbror
+	err := r.db.Order("id ASC").Find(&benefits).Error
 	return benefits, err
 }

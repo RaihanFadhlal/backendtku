@@ -18,7 +18,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/midtrans/midtrans-go"
 	"github.com/midtrans/midtrans-go/snap"
-	"gorm.io/gorm"
 )
 
 // safari
@@ -39,9 +38,8 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	var fullname string
-
-	if err := h.DB.Model(&models.User{}).Where("email = ?", email).Select("name").First(&fullname).Error; err != nil {
+	fullname, err := h.UserRepo.FindNameByEmail(email)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "User not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -115,19 +113,20 @@ func (h *Handler) DownloadPdf(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var enroll models.EnrollmentSafari
-	if err := h.DB.Where("registrant_id = ? AND policy_id = ?", email, Request.PolicyId).First(&enroll).Error; err != nil {
-		var enrollAbror models.EnrollmentAbror
-		if err := h.DB.Where("registrant_id = ? AND policy_id = ?", email, Request.PolicyId).First(&enrollAbror).Error; err != nil {
+	policyID := ""
+	enroll, err := h.EnrollRepo.FindPolicyForDownload(Request.PolicyId, email)
+	if err != nil {
+		enrollAbror, err := h.EnrollRepo.FindPolicyAbrorForDownload(Request.PolicyId, email)
+		if err != nil {
 			http.Error(w, "Policy not found or unauthorized", http.StatusNotFound)
 			return
 		}
-		enroll = models.EnrollmentSafari{
-			PolicyId: enrollAbror.PolicyId,
-		}
+		policyID = enrollAbror.PolicyId
+	} else {
+		policyID = enroll.PolicyId
 	}
 
-	filePath := "./upload/policy/pdfs/" + enroll.PolicyId + ".pdf"
+	filePath := "./upload/policy/pdfs/" + policyID + ".pdf"
 
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -136,7 +135,7 @@ func (h *Handler) DownloadPdf(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	w.Header().Set("Content-Disposition", "attachment; filename="+enroll.PolicyId+".pdf")
+	w.Header().Set("Content-Disposition", "attachment; filename="+policyID+".pdf")
 	w.Header().Set("Content-Type", "application/pdf")
 	http.ServeFile(w, r, filePath)
 }
@@ -214,8 +213,14 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 	var transactionId string
 	for {
 		transactionId = "T-" + Request.ProductCode + "-" + helpers.RandomString(5)
-		var count int64
-		if err := h.DB.Model(&models.Transaction{}).Where("transaction_id = ?", transactionId).Count(&count).Error; err == nil && count == 0 {
+		isTaken, err := h.EnrollRepo.IsTransactionIDTaken(transactionId)
+		if err != nil {
+			Response.Status = false
+			Response.Message = "Error checking transaction ID"
+			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+			return
+		}
+		if !isTaken {
 			break
 		}
 	}
@@ -244,8 +249,14 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 	var enrollmentId string
 	for {
 		enrollmentId = "E-" + Request.ProductCode + "-" + helpers.RandomString(5)
-		var count int64
-		if err := h.DB.Model(&models.EnrollmentSafari{}).Where("enrollment_id = ?", enrollmentId).Count(&count).Error; err == nil && count == 0 {
+		isTaken, err := h.EnrollRepo.IsEnrollmentIDTaken(enrollmentId)
+		if err != nil {
+			Response.Status = false
+			Response.Message = "Error checking enrollment ID"
+			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+			return
+		}
+		if !isTaken {
 			break
 		}
 	}
@@ -284,8 +295,14 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		var otherEnrollmentId string
 		for {
 			otherEnrollmentId = "E-" + Request.ProductCode + "-" + helpers.RandomString(5)
-			var count int64
-			if err := h.DB.Model(&models.EnrollmentSafari{}).Where("enrollment_id = ?", otherEnrollmentId).Count(&count).Error; err == nil && count == 0 {
+			isTaken, err := h.EnrollRepo.IsEnrollmentIDTaken(otherEnrollmentId)
+			if err != nil {
+				Response.Status = false
+				Response.Message = "Error checking enrollment ID"
+				helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+				return
+			}
+			if !isTaken {
 				break
 			}
 		}
@@ -508,11 +525,10 @@ func (h *Handler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, enroll := range enrolls {
-		var product models.ProductSafari
-		query2 := h.DB.Where("name = ? AND LENGTH(image) > 0", enroll.ProductName)
-		if err := query2.Find(&product).Error; err != nil {
+		image, err := h.ProductRepo.FindProductImageByName(enroll.ProductName)
+		if err != nil {
 			Response.Status = false
-			Response.Message = "Error retrieving products"
+			Response.Message = "Error retrieving product image"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
@@ -531,7 +547,7 @@ func (h *Handler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 			Destination:  enroll.Destination,
 			DateStart:    enroll.DateStart,
 			DateEnd:      enroll.DateEnd,
-			Image:        h.Config.BaseUrl + "/upload/product/" + product.Image,
+			Image:        h.Config.BaseUrl + "/upload/product/" + image,
 		})
 	}
 
@@ -599,18 +615,16 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var vehicle models.Car
-	if err := h.DB.Where("name = ?",
-		Request.CarType).First(&vehicle).Error; err != nil {
+	vehicle, err := h.ProductRepo.FindCarByName(Request.CarType)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving car"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
-	var vehicleType models.VehicleType
-	if err := h.DB.Where("min <= ? AND max >= ?",
-		vehicle.Price, vehicle.Price).First(&vehicleType).Error; err != nil {
+	vehicleType, err := h.ProductRepo.FindVehicleTypeByPrice(int64(vehicle.Price))
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving car type"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -619,18 +633,16 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 
 	plat := helpers.ExtractPlateCode(Request.Plat)
 
-	var region models.Region
-	query := `SELECT * FROM regions WHERE ? = ANY(string_to_array(plat, ','))`
-	if err := h.DB.Raw(query, plat).Scan(&region).Error; err != nil {
+	region, err := h.ProductRepo.FindRegionByPlat(plat)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving region"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
-	var product models.ProductAbror
-	if err := h.DB.Where("type_name = ? AND region_code = ? AND vehicle_code = ? ",
-		Request.Contribution, region.Code, vehicleType.Code).First(&product).Error; err != nil {
+	product, err := h.ProductRepo.FindAbrorProductByCriteria(Request.Contribution, region.Code, vehicleType.Code)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving product"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -642,8 +654,14 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 	var transactionId string
 	for {
 		transactionId = "T-" + Request.ProductCode + "-" + helpers.RandomString(5)
-		var count int64
-		if err := h.DB.Model(&models.Transaction{}).Where("transaction_id = ?", transactionId).Count(&count).Error; err == nil && count == 0 {
+		isTaken, err := h.EnrollRepo.IsTransactionAbrorIDTaken(transactionId)
+		if err != nil {
+			Response.Status = false
+			Response.Message = "Error checking transaction ID"
+			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+			return
+		}
+		if !isTaken {
 			break
 		}
 	}
@@ -672,8 +690,14 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 	var enrollmentId string
 	for {
 		enrollmentId = "E-" + Request.ProductCode + "-" + helpers.RandomString(5)
-		var count int64
-		if err := h.DB.Model(&models.EnrollmentSafari{}).Where("enrollment_id = ?", enrollmentId).Count(&count).Error; err == nil && count == 0 {
+		isTaken, err := h.EnrollRepo.IsEnrollmentIDTaken(enrollmentId)
+		if err != nil {
+			Response.Status = false
+			Response.Message = "Error checking enrollment ID"
+			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+			return
+		}
+		if !isTaken {
 			break
 		}
 	}
@@ -690,7 +714,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		{Request.Image4, enrollmentId},
 		{Request.IdUser, enrollmentId},
 	} {
-		imageName, err := saveImage(image.Base64, image.BaseName, basePath, h.DB)
+		imageName, err := saveImage(image.Base64, image.BaseName, basePath)
 		if err != nil {
 			Response.Status = false
 			Response.Message = err.Error()
@@ -760,8 +784,8 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	var trx models.TransactionAbror
-	if err := h.DB.Where("registrant_id = ? AND transaction_id = ?", email, Request.TrxId).First(&trx).Error; err != nil {
+	trx, err := h.EnrollRepo.FindTransactionAbrorForStatusUpdate(Request.TrxId, email)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Transaction not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -788,7 +812,7 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 
 	if status == "expire" || status == "deny" || status == "cancel" {
 		trx.Status = "Gagal"
-		if err := h.EnrollRepo.SaveTransactionAbror(&trx); err != nil {
+		if err := h.EnrollRepo.SaveTransactionAbror(trx); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to update transaction status"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -802,7 +826,7 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 
 	if status == "settlement" {
 		trx.Status = "Berhasil"
-		if err := h.EnrollRepo.SaveTransactionAbror(&trx); err != nil {
+		if err := h.EnrollRepo.SaveTransactionAbror(trx); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to update transaction status"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -821,8 +845,8 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 		policyId := "policy-" + uniqueCode[len(uniqueCode)-5:]
 
 		char6 := Request.TrxId[5]
-		var benefits []models.ProductBenefitAbror
-		if err := h.DB.Order("id ASC").Find(&benefits).Error; err != nil {
+		benefits, err := h.ProductRepo.FindAllAbrorBenefit()
+		if err != nil {
 			http.Error(w, "Error retrieving benefits", http.StatusInternalServerError)
 			return
 		}
@@ -903,11 +927,10 @@ func (h *Handler) GetPoliciesAbror(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, enroll := range enrolls {
-		var product models.ProductAbror
-		query2 := h.DB.Where("name = ? AND LENGTH(image) > 0", enroll.ProductName)
-		if err := query2.Find(&product).Error; err != nil {
+		image, err := h.ProductRepo.FindProductAbrorImageByName(enroll.ProductName)
+		if err != nil {
 			Response.Status = false
-			Response.Message = "Error retrieving products"
+			Response.Message = "Error retrieving product image"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
@@ -926,7 +949,7 @@ func (h *Handler) GetPoliciesAbror(w http.ResponseWriter, r *http.Request) {
 			CarType:      enroll.CarType,
 			DateStart:    enroll.DateStart,
 			DateEnd:      enroll.DateEnd,
-			Image:        h.Config.BaseUrl + "/upload/product/" + product.Image,
+			Image:        h.Config.BaseUrl + "/upload/product/" + image,
 		})
 	}
 
@@ -1003,7 +1026,7 @@ func (h *Handler) GetTrx(w http.ResponseWriter, r *http.Request) {
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
-func saveImage(imageBase64, baseName, path string, db *gorm.DB) (string, error) {
+func saveImage(imageBase64, baseName, path string) (string, error) {
 	if imageBase64 == "" {
 		return "", nil
 	}
