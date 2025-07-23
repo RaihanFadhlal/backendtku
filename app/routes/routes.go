@@ -21,9 +21,10 @@ func InitializeRoutes(router *mux.Router, db *gorm.DB) {
 	userRepo := repositories.NewUserRepository(db)
 	productRepo := repositories.NewProductRepository(db)
 	enrollRepo := repositories.NewEnrollmentRepository(db)
+	claimRepo := repositories.NewClaimRepository(db)
 	middleware.InitRedis()
 	middleware.InitMidtrans()
-	handler := controllers.NewHandler(db, cfg, userRepo, productRepo, enrollRepo)
+	handler := controllers.NewHandler(db, cfg, userRepo, productRepo, enrollRepo, claimRepo)
 	router.HandleFunc("/", handler.Home).Methods("GET")
 
 	//auth

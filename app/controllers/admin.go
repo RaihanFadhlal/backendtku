@@ -49,8 +49,8 @@ func (h *Handler) GetClaimSafariAll(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	var user models.User
-	if err := h.DB.Where("email = ?", email).First(&user).Error; err != nil {
+	user, err := h.UserRepo.FindByEmail(email)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Invalid email or password"
 		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
@@ -64,38 +64,27 @@ func (h *Handler) GetClaimSafariAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := h.DB.Model(&models.ClaimSafari{})
-
-	if Request.PolicyId != "" {
-		query = h.DB.Where("policy_id = ?", Request.PolicyId)
-	}
-	if Request.ProductName != "" {
-		query = query.Where("product_name = ?", Request.ProductName)
-	}
-	if Request.DateReport != "" {
-		query = query.Where("date_report = ?", Request.DateReport)
-	}
-	if Request.RegistrantId != "" {
-		query = query.Where("registrant_id = ?", Request.RegistrantId)
-	}
-	if Request.Status != "" {
-		query = query.Where("status = ?", Request.Status)
+	filters := map[string]string{
+		"policy_id":      Request.PolicyId,
+		"product_name":   Request.ProductName,
+		"date_report":    Request.DateReport,
+		"registrant_id":  Request.RegistrantId,
+		"status":         Request.Status,
 	}
 
-	var claims []models.ClaimSafari
-	if err := query.Order("created_at DESC").Find(&claims).Error; err != nil {
+	claims, err := h.ClaimRepo.GetAdminClaimsSafari(filters)
+	if err != nil {
 		Response.Status = false
-		Response.Message = "Error retrieving products"
+		Response.Message = "Error retrieving claims"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
 	for _, claim := range claims {
-		var product models.ProductSafari
-		query2 := h.DB.Where("name = ? AND LENGTH(image) > 0", claim.ProductName)
-		if err := query2.Find(&product).Error; err != nil {
+		image, err := h.ProductRepo.FindProductImageByName(claim.ProductName)
+		if err != nil {
 			Response.Status = false
-			Response.Message = "Error retrieving products"
+			Response.Message = "Error retrieving product image"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
@@ -118,7 +107,7 @@ func (h *Handler) GetClaimSafariAll(w http.ResponseWriter, r *http.Request) {
 			DateReport:   claim.DateReport,
 			DateAccident: claim.DateAccident,
 			Status:       claim.Status,
-			Image:        h.Config.BaseUrl + "/upload/product/" + product.Image,
+			Image:        h.Config.BaseUrl + "/upload/product/" + image,
 			Evidence:     h.Config.BaseUrl + "/upload/claim/" + claim.Evidence,
 			Detail:       claim.Detail,
 			PolicyPdf:    h.Config.BaseUrl + "/upload/policy/pdfs/" + claim.PolicyId + ".pdf",
@@ -165,8 +154,8 @@ func (h *Handler) GetClaimAbrorAll(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	var user models.User
-	if err := h.DB.Where("email = ?", email).First(&user).Error; err != nil {
+	user, err := h.UserRepo.FindByEmail(email)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Invalid email or password"
 		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
@@ -175,40 +164,31 @@ func (h *Handler) GetClaimAbrorAll(w http.ResponseWriter, r *http.Request) {
 
 	if user.Type != "admin" {
 		Response.Status = false
-		Response.Message = "Invalid email or password"
+		Response.Message = "unauthorized"
 		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
 		return
 	}
 
-	query := h.DB.Model(&models.ClaimAbror{})
-
-	if Request.PolicyId != "" {
-		query = h.DB.Where("policy_id = ?", Request.PolicyId)
-	}
-	if Request.DateReport != "" {
-		query = query.Where("date_report = ?", Request.DateReport)
-	}
-	if Request.RegistrantId != "" {
-		query = query.Where("registrant_id = ?", Request.RegistrantId)
-	}
-	if Request.Status != "" {
-		query = query.Where("date_report = ?", Request.Status)
+	filters := map[string]string{
+		"policy_id":     Request.PolicyId,
+		"date_report":   Request.DateReport,
+		"registrant_id": Request.RegistrantId,
+		"status":        Request.Status,
 	}
 
-	var claims []models.ClaimAbror
-	if err := query.Order("created_at DESC").Find(&claims).Error; err != nil {
+	claims, err := h.ClaimRepo.GetAdminClaimsAbror(filters)
+	if err != nil {
 		Response.Status = false
-		Response.Message = "Error retrieving products"
+		Response.Message = "Error retrieving claims"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
 	for _, claim := range claims {
-		var product models.ProductAbror
-		query2 := h.DB.Where("name = ? AND LENGTH(image) > 0", claim.ProductName)
-		if err := query2.Find(&product).Error; err != nil {
+		image, err := h.ProductRepo.FindProductAbrorImageByName(claim.ProductName)
+		if err != nil {
 			Response.Status = false
-			Response.Message = "Error retrieving products"
+			Response.Message = "Error retrieving product image"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
@@ -231,7 +211,7 @@ func (h *Handler) GetClaimAbrorAll(w http.ResponseWriter, r *http.Request) {
 			DateReport:   claim.DateReport,
 			DateAccident: claim.DateAccident,
 			Status:       claim.Status,
-			Image:        h.Config.BaseUrl + "/upload/product/" + product.Image,
+			Image:        h.Config.BaseUrl + "/upload/product/" + image,
 			Evidence:     h.Config.BaseUrl + "/upload/claim/" + claim.Evidence,
 			Detail:       claim.Detail,
 			PolicyPdf:    h.Config.BaseUrl + "/upload/policy/pdfs/" + claim.PolicyId + ".pdf",
@@ -269,8 +249,8 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	var user models.User
-	if err := h.DB.Where("email = ?", email).First(&user).Error; err != nil {
+	user, err := h.UserRepo.FindByEmail(email)
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Invalid email or password"
 		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
@@ -288,9 +268,9 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 
 	switch claimType {
 	case "safari":
-		claim = &models.ClaimSafari{}
+		claim, err = h.ClaimRepo.FindClaimSafariByID(Request.ClaimId)
 	case "abror":
-		claim = &models.ClaimAbror{}
+		claim, err = h.ClaimRepo.FindClaimAbrorByID(Request.ClaimId)
 	default:
 		Response.Status = false
 		Response.Message = "Invalid claim type"
@@ -298,7 +278,7 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.DB.Where("claim_id = ?", Request.ClaimId).First(claim).Error; err != nil {
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Claim not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
@@ -375,7 +355,7 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := h.DB.Save(claim).Error; err != nil {
+	if err := h.ClaimRepo.UpdateClaim(claim); err != nil {
 		Response.Status = false
 		Response.Message = "Failed to update claim"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)

@@ -63,9 +63,13 @@ func (h *Handler) RequestClaim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var count int64
-	h.DB.Model(&models.EnrollmentSafari{}).Where("registrant_id = ? AND policy_id = ?",
-		email, Request.PolicyId).Count(&count)
+	count, err := h.ClaimRepo.FindEnrollmentForClaim(email, Request.PolicyId)
+	if err != nil {
+		Response.Status = false
+		Response.Message = "Error checking enrollment"
+		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+		return
+	}
 
 	if count == 0 {
 		Response.Status = false
@@ -77,24 +81,30 @@ func (h *Handler) RequestClaim(w http.ResponseWriter, r *http.Request) {
 	var claimId string
 	for {
 		claimId = "C-" + Request.PolicyId + "-" + helpers.RandomString(5)
-		var count int64
-		if err := h.DB.Model(&models.ClaimSafari{}).Where("claim_id = ?", claimId).Count(&count).Error; err == nil && count == 0 {
+		isTaken, err := h.ClaimRepo.IsClaimIDTaken(claimId)
+		if err != nil {
+			Response.Status = false
+			Response.Message = "Error checking claim ID"
+			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+			return
+		}
+		if !isTaken {
 			break
 		}
 	}
 
-	var productCode string
-	if err := h.DB.Model(&models.EnrollmentSafari{}).Where("policy_id = ?", Request.PolicyId).Select("product_code").First(&productCode).Error; err != nil {
+	productCode, err := h.ClaimRepo.GetProductCodeByPolicy(Request.PolicyId)
+	if err != nil {
 		Response.Status = false
-		Response.Message = "User not found"
+		Response.Message = "Product code not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
 		return
 	}
 
-	var enrollmentId string
-	if err := h.DB.Model(&models.EnrollmentSafari{}).Where("policy_id = ?", Request.PolicyId).Select("enrollment_id").First(&enrollmentId).Error; err != nil {
+	enrollmentId, err := h.ClaimRepo.GetEnrollmentIDByPolicy(Request.PolicyId)
+	if err != nil {
 		Response.Status = false
-		Response.Message = "User not found"
+		Response.Message = "Enrollment ID not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
 		return
 	}
@@ -104,19 +114,18 @@ func (h *Handler) RequestClaim(w http.ResponseWriter, r *http.Request) {
 		imageFormat := helpers.GetTypeBase64(Request.Evidence)
 		imageName = "ClaimEv-" + Request.PolicyId + imageFormat
 
-		var count int64
 		for {
-			if err := h.DB.Model(&models.ClaimSafari{}).Where("evidence = ?", imageName).Count(&count).Error; err != nil {
+			isTaken, err := h.ClaimRepo.IsClaimImageNameTaken(imageName)
+			if err != nil {
 				Response.Status = false
 				Response.Message = "Error checking image name"
 				helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 				return
 			}
-			if count == 0 {
+			if !isTaken {
 				break
 			}
-			count++
-			imageName = fmt.Sprintf("ClaimEv-%s%d%s", Request.PolicyId, count, imageFormat)
+			imageName = fmt.Sprintf("ClaimEv-%s%d%s", Request.PolicyId, 1, imageFormat)
 		}
 
 		decodedImage, err := base64.StdEncoding.DecodeString(Request.Evidence)
@@ -154,7 +163,7 @@ func (h *Handler) RequestClaim(w http.ResponseWriter, r *http.Request) {
 		Detail:       Request.Detail,
 	}
 
-	if err := h.DB.Create(&claim).Error; err != nil {
+	if err := h.ClaimRepo.CreateClaim(&claim); err != nil {
 		Response.Status = false
 		Response.Message = "Error saving claim: " + err.Error()
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -196,29 +205,19 @@ func (h *Handler) GetClaim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	query := h.DB.Where("registrant_id = ?", email)
-
-	if Request.ProductName != "" {
-		query = query.Where("product_name = ?", Request.ProductName)
-	}
-	if Request.DateReport != "" {
-		query = query.Where("date_report = ?", Request.DateReport)
-	}
-
-	var claims []models.ClaimSafari
-	if err := query.Order("created_at DESC").Find(&claims).Error; err != nil {
+	claims, err := h.ClaimRepo.GetClaims(email, Request.ProductName, Request.DateReport)
+	if err != nil {
 		Response.Status = false
-		Response.Message = "Error retrieving products"
+		Response.Message = "Error retrieving claims"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
 	for _, claim := range claims {
-		var product models.ProductSafari
-		query2 := h.DB.Where("name = ? AND LENGTH(image) > 0", claim.ProductName)
-		if err := query2.Find(&product).Error; err != nil {
+		image, err := h.ProductRepo.FindProductImageByName(claim.ProductName)
+		if err != nil {
 			Response.Status = false
-			Response.Message = "Error retrieving products"
+			Response.Message = "Error retrieving product image"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
@@ -239,7 +238,7 @@ func (h *Handler) GetClaim(w http.ResponseWriter, r *http.Request) {
 			DateReport:   claim.DateReport,
 			DateAccident: claim.DateAccident,
 			Status:       claim.Status,
-			Image:        h.Config.BaseUrl + "/upload/product/" + product.Image,
+			Image:        h.Config.BaseUrl + "/upload/product/" + image,
 			Evidence:     h.Config.BaseUrl + "/upload/claim/" + claim.Evidence,
 			Detail:       claim.Detail,
 		})
@@ -298,9 +297,13 @@ func (h *Handler) RequestClaimAbror(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var count int64
-	h.DB.Model(&models.EnrollmentAbror{}).Where("registrant_id = ? AND policy_id = ?",
-		email, Request.PolicyId).Count(&count)
+	count, err := h.ClaimRepo.FindEnrollmentAbrorForClaim(email, Request.PolicyId)
+	if err != nil {
+		Response.Status = false
+		Response.Message = "Error checking enrollment"
+		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+		return
+	}
 
 	if count == 0 {
 		Response.Status = false
@@ -312,24 +315,30 @@ func (h *Handler) RequestClaimAbror(w http.ResponseWriter, r *http.Request) {
 	var claimId string
 	for {
 		claimId = "C-" + Request.PolicyId + "-" + helpers.RandomString(5)
-		var count int64
-		if err := h.DB.Model(&models.ClaimAbror{}).Where("claim_id = ?", claimId).Count(&count).Error; err == nil && count == 0 {
+		isTaken, err := h.ClaimRepo.IsClaimAbrorIDTaken(claimId)
+		if err != nil {
+			Response.Status = false
+			Response.Message = "Error checking claim ID"
+			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+			return
+		}
+		if !isTaken {
 			break
 		}
 	}
 
-	var productCode string
-	if err := h.DB.Model(&models.EnrollmentAbror{}).Where("policy_id = ?", Request.PolicyId).Select("product_code").First(&productCode).Error; err != nil {
+	productCode, err := h.ClaimRepo.GetProductCodeAbrorByPolicy(Request.PolicyId)
+	if err != nil {
 		Response.Status = false
-		Response.Message = "User not found"
+		Response.Message = "Product code not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
 		return
 	}
 
-	var enrollmentId string
-	if err := h.DB.Model(&models.EnrollmentAbror{}).Where("policy_id = ?", Request.PolicyId).Select("enrollment_id").First(&enrollmentId).Error; err != nil {
+	enrollmentId, err := h.ClaimRepo.GetEnrollmentIDAbrorByPolicy(Request.PolicyId)
+	if err != nil {
 		Response.Status = false
-		Response.Message = "User not found"
+		Response.Message = "Enrollment ID not found"
 		helpers.ResponseJSON(w, http.StatusNotFound, Response)
 		return
 	}
@@ -339,19 +348,18 @@ func (h *Handler) RequestClaimAbror(w http.ResponseWriter, r *http.Request) {
 		imageFormat := helpers.GetTypeBase64(Request.Evidence)
 		imageName = "ClaimEv-" + Request.PolicyId + imageFormat
 
-		var count int64
 		for {
-			if err := h.DB.Model(&models.ClaimAbror{}).Where("evidence = ?", imageName).Count(&count).Error; err != nil {
+			isTaken, err := h.ClaimRepo.IsClaimAbrorImageNameTaken(imageName)
+			if err != nil {
 				Response.Status = false
 				Response.Message = "Error checking image name"
 				helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 				return
 			}
-			if count == 0 {
+			if !isTaken {
 				break
 			}
-			count++
-			imageName = fmt.Sprintf("ClaimEv-%s%d%s", Request.PolicyId, count, imageFormat)
+			imageName = fmt.Sprintf("ClaimEv-%s%d%s", Request.PolicyId, 1, imageFormat)
 		}
 
 		decodedImage, err := base64.StdEncoding.DecodeString(Request.Evidence)
@@ -389,7 +397,7 @@ func (h *Handler) RequestClaimAbror(w http.ResponseWriter, r *http.Request) {
 		Detail:       Request.Detail,
 	}
 
-	if err := h.DB.Create(&claim).Error; err != nil {
+	if err := h.ClaimRepo.CreateClaimAbror(&claim); err != nil {
 		Response.Status = false
 		Response.Message = "Error saving claim: " + err.Error()
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -432,26 +440,19 @@ func (h *Handler) GetClaimAbror(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	query := h.DB.Where("registrant_id = ?", email)
-
-	if Request.DateReport != "" {
-		query = query.Where("date_report = ?", Request.DateReport)
-	}
-
-	var claims []models.ClaimAbror
-	if err := query.Order("created_at DESC").Find(&claims).Error; err != nil {
+	claims, err := h.ClaimRepo.GetClaimsAbror(email, Request.CarType, Request.DateReport, h.DB)
+	if err != nil {
 		Response.Status = false
-		Response.Message = "Error retrieving products"
+		Response.Message = "Error retrieving claims"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
 	for _, claim := range claims {
-		var product models.ProductAbror
-		query2 := h.DB.Where("name = ? AND LENGTH(image) > 0", claim.ProductName)
-		if err := query2.Find(&product).Error; err != nil {
+		image, err := h.ProductRepo.FindProductAbrorImageByName(claim.ProductName)
+		if err != nil {
 			Response.Status = false
-			Response.Message = "Error retrieving products"
+			Response.Message = "Error retrieving product image"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
@@ -494,7 +495,7 @@ func (h *Handler) GetClaimAbror(w http.ResponseWriter, r *http.Request) {
 			DateReport:   claim.DateReport,
 			DateAccident: claim.DateAccident,
 			Status:       claim.Status,
-			Image:        h.Config.BaseUrl + "/upload/product/" + product.Image,
+			Image:        h.Config.BaseUrl + "/upload/product/" + image,
 			Evidence:     h.Config.BaseUrl + "/upload/claim/" + claim.Evidence,
 			Detail:       claim.Detail,
 			CarType:      enroll.CarType,
@@ -530,15 +531,15 @@ func (h *Handler) GetClaimDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	query := h.DB.Where("registrant_id = ? AND claim_id = ?", email, Request.ClaimId)
 
 	var claim interface{}
+	var err error
 
 	switch Request.Type {
 	case "safari":
-		claim = &models.ClaimSafari{}
+		claim, err = h.ClaimRepo.GetClaimDetail(email, Request.ClaimId)
 	case "abror":
-		claim = &models.ClaimAbror{}
+		claim, err = h.ClaimRepo.GetClaimAbrorDetail(email, Request.ClaimId)
 	default:
 		Response.Status = false
 		Response.Message = "Invalid claim type"
@@ -546,7 +547,7 @@ func (h *Handler) GetClaimDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := query.Order("created_at DESC").First(claim).Error; err != nil {
+	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving claim"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)

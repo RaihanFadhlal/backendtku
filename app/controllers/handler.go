@@ -13,14 +13,16 @@ type Handler struct {
 	UserRepo    repositories.UserRepository
 	ProductRepo repositories.ProductRepository
 	EnrollRepo  repositories.EnrollmentRepository
+	ClaimRepo   repositories.ClaimRepository
 }
 
-func NewHandler(db *gorm.DB, cfg *config.Config, userRepo repositories.UserRepository, productRepo repositories.ProductRepository, enrollRepo repositories.EnrollmentRepository) *Handler {
+func NewHandler(db *gorm.DB, cfg *config.Config, userRepo repositories.UserRepository, productRepo repositories.ProductRepository, enrollRepo repositories.EnrollmentRepository, claimRepo repositories.ClaimRepository) *Handler {
 	return &Handler{
 		DB:          db,
 		Config:      cfg,
 		UserRepo:    userRepo,
 		ProductRepo: productRepo,
 		EnrollRepo:  enrollRepo,
+		ClaimRepo:   claimRepo,
 	}
 }
