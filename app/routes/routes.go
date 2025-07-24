@@ -3,7 +3,9 @@ package routes
 import (
 	"backendtku/app/controllers"
 	"backendtku/app/middleware"
+	
 	"backendtku/app/repositories"
+	"backendtku/app/usecase"
 	"backendtku/config"
 	"log"
 	"net/http"
@@ -18,13 +20,23 @@ func InitializeRoutes(router *mux.Router, db *gorm.DB) {
 		log.Fatalf("Error loading config: %v", err)
 	}
 
+	
 	userRepo := repositories.NewUserRepository(db)
 	productRepo := repositories.NewProductRepository(db)
 	enrollRepo := repositories.NewEnrollmentRepository(db)
 	claimRepo := repositories.NewClaimRepository(db)
 	middleware.InitRedis()
 	middleware.InitMidtrans()
-	handler := controllers.NewHandler(db, cfg, userRepo, productRepo, enrollRepo, claimRepo)
+
+	adminUseCase := usecase.NewAdminUseCase(userRepo, claimRepo, productRepo, cfg)
+	authUseCase := usecase.NewAuthUseCase(userRepo, cfg, db)
+	claimUseCase := usecase.NewClaimUseCase(claimRepo, productRepo, cfg, db)
+	enrollmentUseCase := usecase.NewEnrollmentUseCase(enrollRepo, userRepo, productRepo, cfg, db)
+	homeUseCase := usecase.NewHomeUseCase()
+	productUseCase := usecase.NewProductUseCase(productRepo, cfg)
+	profileUseCase := usecase.NewProfileUseCase(userRepo, cfg)
+
+	handler := controllers.NewHandler(db, cfg, adminUseCase, authUseCase, claimUseCase, enrollmentUseCase, homeUseCase, productUseCase, profileUseCase)
 	router.HandleFunc("/", handler.Home).Methods("GET")
 
 	//auth

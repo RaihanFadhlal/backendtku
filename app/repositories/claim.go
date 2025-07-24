@@ -17,6 +17,7 @@ type ClaimRepository interface {
 	GetClaims(email, productName, dateReport string) ([]models.ClaimSafari, error)
 	GetClaimDetail(email, claimID string) (*models.ClaimSafari, error)
 	IsClaimImageNameTaken(imageName string) (bool, error)
+	CountClaimSafariPayProof(imageName string) (int64, error)
 
 	// Abror
 	FindEnrollmentAbrorForClaim(email, policyID string) (int64, error)
@@ -27,6 +28,7 @@ type ClaimRepository interface {
 	GetClaimsAbror(email, carType, dateReport string, db *gorm.DB) ([]models.ClaimAbror, error)
 	GetClaimAbrorDetail(email, claimID string) (*models.ClaimAbror, error)
 	IsClaimAbrorImageNameTaken(imageName string) (bool, error)
+	CountClaimAbrorPayProof(imageName string) (int64, error)
 
 	// Admin
 	GetAdminClaimsSafari(filters map[string]string) ([]models.ClaimSafari, error)
@@ -42,6 +44,18 @@ type claimRepository struct {
 
 func NewClaimRepository(db *gorm.DB) ClaimRepository {
 	return &claimRepository{db: db}
+}
+
+func (r *claimRepository) CountClaimSafariPayProof(imageName string) (int64, error) {
+	var count int64
+	err := r.db.Model(&models.ClaimSafari{}).Where("pay_proof = ?", imageName).Count(&count).Error
+	return count, err
+}
+
+func (r *claimRepository) CountClaimAbrorPayProof(imageName string) (int64, error) {
+	var count int64
+	err := r.db.Model(&models.ClaimAbror{}).Where("pay_proof = ?", imageName).Count(&count).Error
+	return count, err
 }
 
 func (r *claimRepository) FindEnrollmentForClaim(email, policyID string) (int64, error) {

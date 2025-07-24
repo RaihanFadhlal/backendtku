@@ -1,7 +1,8 @@
 package controllers
 
 import (
-	"backendtku/app/repositories"
+	
+	"backendtku/app/usecase"
 	"backendtku/config"
 
 	"gorm.io/gorm"
@@ -10,19 +11,27 @@ import (
 type Handler struct {
 	DB          *gorm.DB
 	Config      *config.Config
-	UserRepo    repositories.UserRepository
-	ProductRepo repositories.ProductRepository
-	EnrollRepo  repositories.EnrollmentRepository
-	ClaimRepo   repositories.ClaimRepository
+	
+	AdminUseCase usecase.AdminUseCase
+	AuthUseCase usecase.AuthUseCase
+	ClaimUseCase usecase.ClaimUseCase
+	EnrollmentUseCase usecase.EnrollmentUseCase
+	HomeUseCase usecase.HomeUseCase
+	ProductUseCase usecase.ProductUseCase
+	ProfileUseCase usecase.ProfileUseCase
 }
 
-func NewHandler(db *gorm.DB, cfg *config.Config, userRepo repositories.UserRepository, productRepo repositories.ProductRepository, enrollRepo repositories.EnrollmentRepository, claimRepo repositories.ClaimRepository) *Handler {
+func NewHandler(db *gorm.DB, cfg *config.Config, adminUseCase usecase.AdminUseCase, authUseCase usecase.AuthUseCase, claimUseCase usecase.ClaimUseCase, enrollmentUseCase usecase.EnrollmentUseCase, homeUseCase usecase.HomeUseCase, productUseCase usecase.ProductUseCase, profileUseCase usecase.ProfileUseCase) *Handler {
 	return &Handler{
 		DB:          db,
 		Config:      cfg,
-		UserRepo:    userRepo,
-		ProductRepo: productRepo,
-		EnrollRepo:  enrollRepo,
-		ClaimRepo:   claimRepo,
+		
+		AdminUseCase: adminUseCase,
+		AuthUseCase: authUseCase,
+		ClaimUseCase: claimUseCase,
+		EnrollmentUseCase: enrollmentUseCase,
+		HomeUseCase: homeUseCase,
+		ProductUseCase: productUseCase,
+		ProfileUseCase: profileUseCase,
 	}
 }

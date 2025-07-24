@@ -97,7 +97,7 @@ type GetCountriesResponseDTO struct {
 }
 
 type GetCarsResponseDTO struct {
-	Data []string `json:"data"`
+	CarNames []string `json:"car_names"`
 }
 
 type GetSafariPriceRequestDTO struct {
