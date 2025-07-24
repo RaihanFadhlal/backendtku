@@ -212,7 +212,7 @@ func (uc *enrollmentUseCase) RequestProduct(requestDTO dto.RequestProductRequest
 		Name:          requestDTO.FullName,
 		Birthdate:     requestDTO.Birthdate,
 		Birthplace:    requestDTO.Birthplace,
-		Gender:        requestDTO.Gender,
+		Gender:        helpers.FormatGender(requestDTO.Gender),
 		Passport:      requestDTO.Passport,
 	}
 

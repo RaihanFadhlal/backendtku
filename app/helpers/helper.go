@@ -44,6 +44,16 @@ func ResponseJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.Write(response)
 }
 
+func FormatGender(gender string) string {
+	switch gender {
+	case "Laki-laki":
+		return "M"
+	case "Perempuan":
+		return "F"
+	}
+	return gender
+}
+
 func SendEmail(to, subject, body string) error {
 	m := gomail.NewMessage()
 	m.SetHeader("From", "tkflumum@gmail.com")
