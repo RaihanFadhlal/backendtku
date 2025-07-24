@@ -8,68 +8,47 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"backendtku/app/dto"
 	"backendtku/app/helpers"
 	"backendtku/app/middleware"
 )
 
 func (h *Handler) GetUserProfile(w http.ResponseWriter, r *http.Request) {
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Name       string `json:"name"`
-			Gender     string `json:"gender"`
-			Phone      string `json:"phone"`
-			Birthplace string `json:"birthplace"`
-			Birthdate  string `json:"birthdate"`
-			Address    string `json:"address"`
-			Email      string `json:"email"`
-			Image      string `json:"image"`
-			ImageName  string `json:"image_name"`
-		} `json:"data"`
-	}
+	var Response dto.BaseResponse
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
 	user, err := h.UserRepo.FindByEmail(email)
 	if err != nil {
-			Response.Status = false
-			Response.Message = "User not found"
-			helpers.ResponseJSON(w, http.StatusNotFound, Response)
-			return
+		Response.Status = false
+		Response.Message = "User not found"
+		helpers.ResponseJSON(w, http.StatusNotFound, Response)
+		return
+	}
+
+	userDTO := dto.UserProfileResponseDTO{
+		Name:       user.Name,
+		Gender:     user.Gender,
+		Phone:      user.Phone,
+		Birthplace: user.Birthplace,
+		Birthdate:  user.Birthdate,
+		Address:    user.Address,
+		Email:      user.Email,
+		Image:      h.Config.BaseUrl + "/upload/users/" + user.Image,
+		ImageName:  user.Image,
 	}
 
 	Response.Status = true
 	Response.Message = "User profile fetched successfully"
-
-	Response.Data.Name = user.Name
-	Response.Data.Gender = user.Gender
-	Response.Data.Phone = user.Phone
-	Response.Data.Birthplace = user.Birthplace
-	Response.Data.Birthdate = user.Birthdate
-	Response.Data.Address = user.Address
-	Response.Data.Email = user.Email
-	Response.Data.Image = h.Config.BaseUrl + "/upload/users/" + user.Image
-	Response.Data.ImageName = user.Image
+	Response.Data = userDTO
 
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) UpdateUserProfile(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		Name       string `json:"name"`
-		Gender     string `json:"gender"`
-		Phone      string `json:"phone"`
-		Birthplace string `json:"birthplace"`
-		Birthdate  string `json:"birthdate"`
-		Address    string `json:"address"`
-		Image      string `json:"image"`
-	}
+	var requestDTO dto.UpdateUserProfileRequestDTO
 
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-	}
+	var Response dto.BaseResponse
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 	
@@ -81,24 +60,24 @@ func (h *Handler) UpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request payload"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
-	user.Name = Request.Name
-	user.Gender = Request.Gender
-	user.Phone = Request.Phone
-	user.Birthplace = Request.Birthplace
-	user.Birthdate = Request.Birthdate
-	user.Address = Request.Address
+	user.Name = requestDTO.Name
+	user.Gender = requestDTO.Gender
+	user.Phone = requestDTO.Phone
+	user.Birthplace = requestDTO.Birthplace
+	user.Birthdate = requestDTO.Birthdate
+	user.Address = requestDTO.Address
 
-	if Request.Image == "delete" {
+	if requestDTO.Image == "delete" {
 		user.Image = ""
-	} else if Request.Image != "" {
-		imageFormat := helpers.GetTypeBase64(Request.Image)
+	} else if requestDTO.Image != "" {
+		imageFormat := helpers.GetTypeBase64(requestDTO.Image)
 		imageName := "ProfilePict-" + strings.ReplaceAll(user.Name, " ", "") + imageFormat
 
 		var count int64
@@ -119,7 +98,7 @@ func (h *Handler) UpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 
 		user.Image = imageName
 
-		decodedImage, err := base64.StdEncoding.DecodeString(Request.Image)
+		decodedImage, err := base64.StdEncoding.DecodeString(requestDTO.Image)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Failed to decode image"
@@ -141,7 +120,7 @@ func (h *Handler) UpdateUserProfile(w http.ResponseWriter, r *http.Request) {
 		Response.Message = "Failed to update user"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
-}
+	}
 
 	Response.Status = true
 	Response.Message = "User profile updated successfully"

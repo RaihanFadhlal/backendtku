@@ -11,6 +11,7 @@ import (
 	"sort"
 	"time"
 
+	"backendtku/app/dto"
 	"backendtku/app/helpers"
 	"backendtku/app/middleware"
 	"backendtku/app/models"
@@ -22,17 +23,14 @@ import (
 
 // safari
 func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		TrxId string `json:"trx_id"`
-	}
+	var requestDTO dto.CreateTransactionRequestDTO
 
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-	}
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
+		Response.Status = false
+		Response.Message = "Invalid request body"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
@@ -72,16 +70,20 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		snapResp, err := middleware.SnapClient.CreateTransaction(req)
 		if err != nil {
 			log.Println("Error creating transaction:", err)
-			http.Error(w, "Failed to create transaction", http.StatusInternalServerError)
+			Response.Status = false
+			Response.Message = "Failed to create transaction"
+			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(snapResp)
+		Response.Status = true
+		Response.Message = "Transaction created successfully"
+		Response.Data = snapResp
+		helpers.ResponseJSON(w, http.StatusOK, Response)
 	}
 
-	if Request.TrxId[3] == 'S' {
-		trx, err := h.EnrollRepo.FindTransactionByID(Request.TrxId, email)
+	if requestDTO.TrxId[3] == 'S' {
+		trx, err := h.EnrollRepo.FindTransactionByID(requestDTO.TrxId, email)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
@@ -90,7 +92,7 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 		}
 		createSnapRequest(trx.TransactionId, int64(trx.TotalPrice), trx.ProductCode, int64(trx.ProductPrice), int32(trx.Capacity), trx.ProductName)
 	} else {
-		trxa, err := h.EnrollRepo.FindTransactionAbrorByID(Request.TrxId, email)
+		trxa, err := h.EnrollRepo.FindTransactionAbrorByID(requestDTO.TrxId, email)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
@@ -102,21 +104,19 @@ func (h *Handler) CreateTransaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DownloadPdf(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		PolicyId string `json:"policy_id"`
-	}
+	var requestDTO dto.DownloadPdfRequestDTO
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	policyID := ""
-	enroll, err := h.EnrollRepo.FindPolicyForDownload(Request.PolicyId, email)
+	enroll, err := h.EnrollRepo.FindPolicyForDownload(requestDTO.PolicyId, email)
 	if err != nil {
-		enrollAbror, err := h.EnrollRepo.FindPolicyAbrorForDownload(Request.PolicyId, email)
+		enrollAbror, err := h.EnrollRepo.FindPolicyAbrorForDownload(requestDTO.PolicyId, email)
 		if err != nil {
 			http.Error(w, "Policy not found or unauthorized", http.StatusNotFound)
 			return
@@ -141,42 +141,20 @@ func (h *Handler) DownloadPdf(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		ProductCode  string `json:"product_code"`
-		ProductName  string `json:"product_name"`
-		Capacity     int    `json:"capacity"`
-		ProductPrice int64  `json:"product_price"`
-		Phone        string `json:"phone"`
-		From         string `json:"from"`
-		Destination  string `json:"destination"`
-		DateStart    string `json:"date_start"`
-		DateEnd      string `json:"date_end"`
-		Contribution string `json:"contribution"`
-		FullName     string `json:"fullname"`
-		Birthdate    string `json:"birthdate"`
-		Birthplace   string `json:"birthplace"`
-		Gender       string `json:"gender"`
-		Passport     string `json:"passport"`
-		Others       []struct {
-			Fullname  string `json:"fullname"`
-			Birthdate string `json:"birthdate"`
-		} `json:"others"`
-	}
+	var requestDTO dto.RequestProductRequestDTO
 
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		TrxId   string `json:"trx_id"`
-	}
+	var Response dto.BaseResponse
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
+		Response.Status = false
+		Response.Message = "Invalid request body"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
-	startDate, err := time.Parse("2006-01-02", Request.DateStart)
+	startDate, err := time.Parse("2006-01-02", requestDTO.DateStart)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Invalid start date format"
@@ -184,7 +162,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	endDate, err := time.Parse("2006-01-02", Request.DateEnd)
+	endDate, err := time.Parse("2006-01-02", requestDTO.DateEnd)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Invalid end date format"
@@ -200,7 +178,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	count, err := h.EnrollRepo.CountMatchingSafariProduct(Request.ProductCode, Request.Contribution, Request.ProductPrice, totalDays)
+	count, err := h.EnrollRepo.CountMatchingSafariProduct(requestDTO.ProductCode, requestDTO.Contribution, requestDTO.ProductPrice, totalDays)
 	if err != nil || count == 0 {
 		Response.Status = false
 		Response.Message = "No matching product found"
@@ -208,11 +186,11 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	grossAmt := int64(Request.Capacity) * Request.ProductPrice
+	grossAmt := int64(requestDTO.Capacity) * requestDTO.ProductPrice
 
 	var transactionId string
 	for {
-		transactionId = "T-" + Request.ProductCode + "-" + helpers.RandomString(5)
+		transactionId = "T-" + requestDTO.ProductCode + "-" + helpers.RandomString(5)
 		isTaken, err := h.EnrollRepo.IsTransactionIDTaken(transactionId)
 		if err != nil {
 			Response.Status = false
@@ -229,10 +207,10 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		ID:            uuid.New(),
 		TransactionId: transactionId,
 		RegistrantId:  email,
-		ProductCode:   Request.ProductCode,
-		ProductName:   Request.ProductName,
-		ProductPrice:  int(Request.ProductPrice),
-		Capacity:      int(Request.Capacity),
+		ProductCode:   requestDTO.ProductCode,
+		ProductName:   requestDTO.ProductName,
+		ProductPrice:  int(requestDTO.ProductPrice),
+		Capacity:      int(requestDTO.Capacity),
 		TotalPrice:    int(grossAmt),
 		Status:        "Menunggu Pembayaran",
 		CreatedAt:     time.Now(),
@@ -248,7 +226,7 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 
 	var enrollmentId string
 	for {
-		enrollmentId = "E-" + Request.ProductCode + "-" + helpers.RandomString(5)
+		enrollmentId = "E-" + requestDTO.ProductCode + "-" + helpers.RandomString(5)
 		isTaken, err := h.EnrollRepo.IsEnrollmentIDTaken(enrollmentId)
 		if err != nil {
 			Response.Status = false
@@ -268,20 +246,20 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		TransactionId: transactionId,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
-		Phone:         Request.Phone,
-		ProductCode:   Request.ProductCode,
-		ProductName:   Request.ProductName,
-		From:          Request.From,
-		Destination:   Request.Destination,
-		DateStart:     Request.DateStart,
-		DateEnd:       Request.DateEnd,
-		Contribution:  Request.Contribution,
-		Capacity:      Request.Capacity,
-		Name:          Request.FullName,
-		Birthdate:     Request.Birthdate,
-		Birthplace:    Request.Birthplace,
-		Gender:        Request.Gender,
-		Passport:      Request.Passport,
+		Phone:         requestDTO.Phone,
+		ProductCode:   requestDTO.ProductCode,
+		ProductName:   requestDTO.ProductName,
+		From:          requestDTO.From,
+		Destination:   requestDTO.Destination,
+		DateStart:     requestDTO.DateStart,
+		DateEnd:       requestDTO.DateEnd,
+		Contribution:  requestDTO.Contribution,
+		Capacity:      requestDTO.Capacity,
+		Name:          requestDTO.FullName,
+		Birthdate:     requestDTO.Birthdate,
+		Birthplace:    requestDTO.Birthplace,
+		Gender:        requestDTO.Gender,
+		Passport:      requestDTO.Passport,
 	}
 
 	if err := h.EnrollRepo.CreateEnrollment(enrollment); err != nil {
@@ -291,10 +269,10 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	for _, other := range Request.Others {
+	for _, other := range requestDTO.Others {
 		var otherEnrollmentId string
 		for {
-			otherEnrollmentId = "E-" + Request.ProductCode + "-" + helpers.RandomString(5)
+			otherEnrollmentId = "E-" + requestDTO.ProductCode + "-" + helpers.RandomString(5)
 			isTaken, err := h.EnrollRepo.IsEnrollmentIDTaken(otherEnrollmentId)
 			if err != nil {
 				Response.Status = false
@@ -314,14 +292,14 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 			TransactionId: transactionId,
 			CreatedAt:     time.Now(),
 			UpdatedAt:     time.Now(),
-			ProductCode:   Request.ProductCode,
-			ProductName:   Request.ProductName,
-			From:          Request.From,
-			Destination:   Request.Destination,
-			DateStart:     Request.DateStart,
-			DateEnd:       Request.DateEnd,
-			Contribution:  Request.Contribution,
-			Capacity:      Request.Capacity,
+			ProductCode:   requestDTO.ProductCode,
+			ProductName:   requestDTO.ProductName,
+			From:          requestDTO.From,
+			Destination:   requestDTO.Destination,
+			DateStart:     requestDTO.DateStart,
+			DateEnd:       requestDTO.DateEnd,
+			Contribution:  requestDTO.Contribution,
+			Capacity:      requestDTO.Capacity,
 			Name:          other.Fullname,
 			Birthdate:     other.Birthdate,
 		}
@@ -336,20 +314,15 @@ func (h *Handler) RequestProduct(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Enrollment successfull"
-	Response.TrxId = transactionId
+	Response.Data = map[string]string{"trx_id": transactionId}
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		TrxId string `json:"trx_id"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-	}
+	var requestDTO dto.PaymentStatusRequestDTO
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request body"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -358,7 +331,7 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	trx, err := h.EnrollRepo.FindTransactionForStatusUpdate(Request.TrxId, email)
+	trx, err := h.EnrollRepo.FindTransactionForStatusUpdate(requestDTO.TrxId, email)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Transaction not found"
@@ -366,7 +339,7 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	midtransResponse, err := middleware.VerifyMidtransTrx(Request.TrxId)
+	midtransResponse, err := middleware.VerifyMidtransTrx(requestDTO.TrxId)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Failed to verify transaction status"
@@ -407,7 +380,7 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		enroll, err := h.EnrollRepo.FindMainEnrollmentByTxID(Request.TrxId, email)
+		enroll, err := h.EnrollRepo.FindMainEnrollmentByTxID(requestDTO.TrxId, email)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
@@ -457,7 +430,7 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		others, err := h.EnrollRepo.FindAllEnrollmentsByTxID(Request.TrxId, email)
+		others, err := h.EnrollRepo.FindAllEnrollmentsByTxID(requestDTO.TrxId, email)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
@@ -476,7 +449,7 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 			log.Fatal(err.Error())
 		}
 
-		if err := h.EnrollRepo.UpdateEnrollmentsPolicyID(Request.TrxId, email, policyId); err != nil {
+		if err := h.EnrollRepo.UpdateEnrollmentsPolicyID(requestDTO.TrxId, email, policyId); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to save policies"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -485,30 +458,16 @@ func (h *Handler) PaymentStatus(w http.ResponseWriter, r *http.Request) {
 
 		Response.Status = true
 		Response.Message = "Pembayaran Berhasil"
+		Response.Data = map[string]string{"policy_id": policyId}
 		helpers.ResponseJSON(w, http.StatusOK, Response)
 	}
 }
 
 func (h *Handler) GetPolicies(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		ProductName string `json:"product_name"`
-		Destination string `json:"destination"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    []struct {
-			PolicyId     string `json:"policy_id"`
-			ProductName  string `json:"product_name"`
-			Contribution string `json:"contribution"`
-			Destination  string `json:"destination"`
-			DateStart    string `json:"sdate"`
-			DateEnd      string `json:"edate"`
-			Image        string `json:"image"`
-		} `json:"data"`
-	}
+	var requestDTO dto.GetPoliciesRequestDTO
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request body"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -516,7 +475,7 @@ func (h *Handler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	enrolls, err := h.EnrollRepo.FindAllPolicies(email, Request.ProductName, Request.Destination)
+	enrolls, err := h.EnrollRepo.FindAllPolicies(email, requestDTO.ProductName, requestDTO.Destination)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving products"
@@ -524,6 +483,7 @@ func (h *Handler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var policyItems []dto.PolicyResponseItemDTO
 	for _, enroll := range enrolls {
 		image, err := h.ProductRepo.FindProductImageByName(enroll.ProductName)
 		if err != nil {
@@ -532,15 +492,7 @@ func (h *Handler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
-		Response.Data = append(Response.Data, struct {
-			PolicyId     string `json:"policy_id"`
-			ProductName  string `json:"product_name"`
-			Contribution string `json:"contribution"`
-			Destination  string `json:"destination"`
-			DateStart    string `json:"sdate"`
-			DateEnd      string `json:"edate"`
-			Image        string `json:"image"`
-		}{
+		policyItems = append(policyItems, dto.PolicyResponseItemDTO{
 			PolicyId:     enroll.PolicyId,
 			ProductName:  enroll.ProductName,
 			Contribution: enroll.Contribution,
@@ -553,57 +505,38 @@ func (h *Handler) GetPolicies(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Products retrieved successfully"
+	Response.Data = policyItems
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 // abror
 func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		Contribution string `json:"contribution"`
-		ProductCode  string `json:"product_code"`
-		ProductName  string `json:"product_name"`
-		CarBrand     string `json:"car_brand"`
-		CarType      string `json:"car_type"`
-		Year         string `json:"year"`
-		DateStart    string `json:"date_start"`
-		DateEnd      string `json:"date_end"`
-		Price        int    `json:"price"`
-		Plat         string `json:"plat"`
-		Chassis      string `json:"chassis"`
-		Engine       string `json:"engine"`
-		Image1       string `json:"image1"`
-		Image2       string `json:"image2"`
-		Image3       string `json:"image3"`
-		Image4       string `json:"image4"`
-		Fullname     string `json:"fullname"`
-		Birthdate    string `json:"birtdate"`
-		Gender       string `json:"gender"`
-		Phone        string `json:"phone"`
-		IdUser       string `json:"id_user"`
-	}
+	var requestDTO dto.RequestAbrorRequestDTO
 
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		TrxId   string `json:"trx_id"`
-	}
+	var Response dto.BaseResponse
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
+		Response.Status = false
+		Response.Message = "Invalid request body"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
 	layout := "2006-01-02"
-	startDate, err := time.Parse(layout, Request.DateStart)
+	startDate, err := time.Parse(layout, requestDTO.DateStart)
 	if err != nil {
-		http.Error(w, "Invalid DateStart format", http.StatusBadRequest)
+		Response.Status = false
+		Response.Message = "Invalid DateStart format"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
-	endDate, err := time.Parse(layout, Request.DateEnd)
+	endDate, err := time.Parse(layout, requestDTO.DateEnd)
 	if err != nil {
-		http.Error(w, "Invalid DateEnd format", http.StatusBadRequest)
+		Response.Status = false
+		Response.Message = "Invalid DateEnd format"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
@@ -615,7 +548,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	vehicle, err := h.ProductRepo.FindCarByName(Request.CarType)
+	vehicle, err := h.ProductRepo.FindCarByName(requestDTO.CarType)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving car"
@@ -631,7 +564,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plat := helpers.ExtractPlateCode(Request.Plat)
+	plat := helpers.ExtractPlateCode(requestDTO.Plat)
 
 	region, err := h.ProductRepo.FindRegionByPlat(plat)
 	if err != nil {
@@ -641,7 +574,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	product, err := h.ProductRepo.FindAbrorProductByCriteria(Request.Contribution, region.Code, vehicleType.Code)
+	product, err := h.ProductRepo.FindAbrorProductByCriteria(requestDTO.Contribution, region.Code, vehicleType.Code)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving product"
@@ -653,7 +586,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 
 	var transactionId string
 	for {
-		transactionId = "T-" + Request.ProductCode + "-" + helpers.RandomString(5)
+		transactionId = "T-" + requestDTO.ProductCode + "-" + helpers.RandomString(5)
 		isTaken, err := h.EnrollRepo.IsTransactionAbrorIDTaken(transactionId)
 		if err != nil {
 			Response.Status = false
@@ -670,8 +603,8 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		ID:            uuid.New(),
 		TransactionId: transactionId,
 		RegistrantId:  email,
-		ProductCode:   Request.ProductCode,
-		ProductName:   Request.ProductName,
+		ProductCode:   requestDTO.ProductCode,
+		ProductName:   requestDTO.ProductName,
 		ProductPrice:  int(price),
 		Capacity:      1,
 		TotalPrice:    int(price),
@@ -689,7 +622,7 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 
 	var enrollmentId string
 	for {
-		enrollmentId = "E-" + Request.ProductCode + "-" + helpers.RandomString(5)
+		enrollmentId = "E-" + requestDTO.ProductCode + "-" + helpers.RandomString(5)
 		isTaken, err := h.EnrollRepo.IsEnrollmentIDTaken(enrollmentId)
 		if err != nil {
 			Response.Status = false
@@ -708,11 +641,11 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		Base64   string
 		BaseName string
 	}{
-		{Request.Image1, enrollmentId},
-		{Request.Image2, enrollmentId},
-		{Request.Image3, enrollmentId},
-		{Request.Image4, enrollmentId},
-		{Request.IdUser, enrollmentId},
+		{requestDTO.Image1, enrollmentId},
+		{requestDTO.Image2, enrollmentId},
+		{requestDTO.Image3, enrollmentId},
+		{requestDTO.Image4, enrollmentId},
+		{requestDTO.IdUser, enrollmentId},
 	} {
 		imageName, err := saveImage(image.Base64, image.BaseName, basePath)
 		if err != nil {
@@ -731,25 +664,25 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 		TransactionId: transactionId,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
-		Phone:         Request.Phone,
-		ProductCode:   Request.ProductCode,
-		ProductName:   Request.ProductName,
-		DateStart:     Request.DateStart,
-		DateEnd:       Request.DateEnd,
-		Contribution:  Request.Contribution,
-		CarBrand:      Request.CarBrand,
-		CarType:       Request.CarType,
-		Year:          Request.Year,
-		Plat:          Request.Plat,
-		Chassis:       Request.Chassis,
-		Engine:        Request.Engine,
+		Phone:         requestDTO.Phone,
+		ProductCode:   requestDTO.ProductCode,
+		ProductName:   requestDTO.ProductName,
+		DateStart:     requestDTO.DateStart,
+		DateEnd:       requestDTO.DateEnd,
+		Contribution:  requestDTO.Contribution,
+		CarBrand:      requestDTO.CarBrand,
+		CarType:       requestDTO.CarType,
+		Year:          requestDTO.Year,
+		Plat:          requestDTO.Plat,
+		Chassis:       requestDTO.Chassis,
+		Engine:        requestDTO.Engine,
 		Image1:        imageNames[0],
 		Image2:        imageNames[1],
 		Image3:        imageNames[2],
 		Image4:        imageNames[3],
-		Name:          Request.Fullname,
-		Birthdate:     Request.Birthdate,
-		Gender:        Request.Gender,
+		Name:          requestDTO.Fullname,
+		Birthdate:     requestDTO.Birthdate,
+		Gender:        requestDTO.Gender,
 		IdUser:        imageNames[4],
 	}
 
@@ -762,20 +695,15 @@ func (h *Handler) RequestAbror(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Enrollment successfull"
-	Response.TrxId = transactionId
+	Response.Data = map[string]string{"trx_id": transactionId}
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		TrxId string `json:"trx_id"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-	}
+	var requestDTO dto.PaymentStatusRequestDTO
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request body"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -784,7 +712,7 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	trx, err := h.EnrollRepo.FindTransactionAbrorForStatusUpdate(Request.TrxId, email)
+	trx, err := h.EnrollRepo.FindTransactionAbrorForStatusUpdate(requestDTO.TrxId, email)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Transaction not found"
@@ -792,7 +720,7 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	midtransResponse, err := middleware.VerifyMidtransTrx(Request.TrxId)
+	midtransResponse, err := middleware.VerifyMidtransTrx(requestDTO.TrxId)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Failed to verify transaction status"
@@ -833,7 +761,7 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		enroll, err := h.EnrollRepo.FindMainEnrollmentAbrorByTxID(Request.TrxId, email)
+		enroll, err := h.EnrollRepo.FindMainEnrollmentAbrorByTxID(requestDTO.TrxId, email)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Transaction not found"
@@ -844,10 +772,12 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 		uniqueCode := trx.TransactionId
 		policyId := "policy-" + uniqueCode[len(uniqueCode)-5:]
 
-		char6 := Request.TrxId[5]
+		char6 := requestDTO.TrxId[5]
 		benefits, err := h.ProductRepo.FindAllAbrorBenefit()
 		if err != nil {
-			http.Error(w, "Error retrieving benefits", http.StatusInternalServerError)
+			Response.Status = false
+			Response.Message = "Error retrieving benefits"
+			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
 
@@ -878,7 +808,7 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 			log.Fatal(err.Error())
 		}
 
-		if err := h.EnrollRepo.UpdateEnrollmentsAbrorPolicyID(Request.TrxId, email, policyId); err != nil {
+		if err := h.EnrollRepo.UpdateEnrollmentsAbrorPolicyID(requestDTO.TrxId, email, policyId); err != nil {
 			Response.Status = false
 			Response.Message = "Failed to save policies"
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
@@ -887,30 +817,16 @@ func (h *Handler) PaymentStatusAbror(w http.ResponseWriter, r *http.Request) {
 
 		Response.Status = true
 		Response.Message = "Pembayaran Berhasil"
+		Response.Data = map[string]string{"policy_id": policyId}
 		helpers.ResponseJSON(w, http.StatusOK, Response)
 	}
 }
 
 func (h *Handler) GetPoliciesAbror(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		CarType   string `json:"car_type"`
-		DateStart string `json:"date_start"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    []struct {
-			PolicyId     string `json:"policy_id"`
-			ProductName  string `json:"product_name"`
-			Contribution string `json:"contribution"`
-			CarType      string `json:"car_type"`
-			DateStart    string `json:"date_start"`
-			DateEnd      string `json:"date_end"`
-			Image        string `json:"image"`
-		} `json:"data"`
-	}
+	var requestDTO dto.GetPoliciesAbrorRequestDTO
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request body"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -918,7 +834,7 @@ func (h *Handler) GetPoliciesAbror(w http.ResponseWriter, r *http.Request) {
 	}
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
-	enrolls, err := h.EnrollRepo.FindAllPoliciesAbror(email, Request.CarType, Request.DateStart)
+	enrolls, err := h.EnrollRepo.FindAllPoliciesAbror(email, requestDTO.CarType, requestDTO.DateStart)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving products"
@@ -926,6 +842,7 @@ func (h *Handler) GetPoliciesAbror(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var policyItems []dto.PolicyAbrorResponseItemDTO
 	for _, enroll := range enrolls {
 		image, err := h.ProductRepo.FindProductAbrorImageByName(enroll.ProductName)
 		if err != nil {
@@ -934,15 +851,7 @@ func (h *Handler) GetPoliciesAbror(w http.ResponseWriter, r *http.Request) {
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
-		Response.Data = append(Response.Data, struct {
-			PolicyId     string `json:"policy_id"`
-			ProductName  string `json:"product_name"`
-			Contribution string `json:"contribution"`
-			CarType      string `json:"car_type"`
-			DateStart    string `json:"date_start"`
-			DateEnd      string `json:"date_end"`
-			Image        string `json:"image"`
-		}{
+		policyItems = append(policyItems, dto.PolicyAbrorResponseItemDTO{
 			PolicyId:     enroll.PolicyId,
 			ProductName:  enroll.ProductName,
 			Contribution: enroll.Contribution,
@@ -955,29 +864,15 @@ func (h *Handler) GetPoliciesAbror(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Products retrieved successfully"
+	Response.Data = policyItems
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetTrx(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		ProductName string `json:"product_name"`
-		Status      string `json:"status"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    []struct {
-			TransactionId string `json:"transaction_id"`
-			ProductName   string `json:"product_name"`
-			TotalPrice    int    `json:"total_price"`
-			CreatedAt     string `json:"created_at"`
-			ExpiredAt     string `json:"expired_at"`
-			Status        string `json:"status"`
-			Image         string `json:"image"`
-		} `json:"data"`
-	}
+	var requestDTO dto.GetTrxRequestDTO
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request body"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -986,8 +881,8 @@ func (h *Handler) GetTrx(w http.ResponseWriter, r *http.Request) {
 
 	email := r.Context().Value(middleware.UserEmailKey).(string)
 
-	safariTrx, err1 := h.EnrollRepo.FindSafariTransactions(email, Request.Status, Request.ProductName)
-	abrorTrx, err2 := h.EnrollRepo.FindAbrorTransactions(email, Request.Status, Request.ProductName)
+	safariTrx, err1 := h.EnrollRepo.FindSafariTransactions(email, requestDTO.Status, requestDTO.ProductName)
+	abrorTrx, err2 := h.EnrollRepo.FindAbrorTransactions(email, requestDTO.Status, requestDTO.ProductName)
 
 	if err1 != nil || err2 != nil {
 		Response.Status = false
@@ -1001,16 +896,9 @@ func (h *Handler) GetTrx(w http.ResponseWriter, r *http.Request) {
 		return allTrx[i].CreatedAt.After(allTrx[j].CreatedAt)
 	})
 
+	var transactionItems []dto.TransactionResponseItemDTO
 	for _, trx := range allTrx {
-		Response.Data = append(Response.Data, struct {
-			TransactionId string `json:"transaction_id"`
-			ProductName   string `json:"product_name"`
-			TotalPrice    int    `json:"total_price"`
-			CreatedAt     string `json:"created_at"`
-			ExpiredAt     string `json:"expired_at"`
-			Status        string `json:"status"`
-			Image         string `json:"image"`
-		}{
+		transactionItems = append(transactionItems, dto.TransactionResponseItemDTO{
 			TransactionId: trx.TransactionId,
 			ProductName:   trx.ProductName,
 			TotalPrice:    trx.TotalPrice,
@@ -1023,6 +911,7 @@ func (h *Handler) GetTrx(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Transactions retrieved successfully"
+	Response.Data = transactionItems
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 

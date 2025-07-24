@@ -1,24 +1,15 @@
 package controllers
 
 import (
+	"backendtku/app/dto"
 	"backendtku/app/helpers"
-	"backendtku/app/repositories"
 	"encoding/json"
 	"fmt"
 	"net/http"
 )
 
 func (h *Handler) GetProducts(w http.ResponseWriter, r *http.Request) {
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    []struct {
-			Code  string `json:"code"`
-			Name  string `json:"name"`
-			Price int    `json:"price"`
-			Image string `json:"image"`
-		} `json:"data"`
-	}
+	var Response dto.BaseResponse
 
 	country := r.URL.Query().Get("country")
 	products, err := h.ProductRepo.FindAllSafari(country)
@@ -29,13 +20,9 @@ func (h *Handler) GetProducts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var productItems []dto.GetProductsResponseItemDTO
 	for _, product := range products {
-		Response.Data = append(Response.Data, struct {
-			Code  string `json:"code"`
-			Name  string `json:"name"`
-			Price int    `json:"price"`
-			Image string `json:"image"`
-		}{
+		productItems = append(productItems, dto.GetProductsResponseItemDTO{
 			Code:  product.Code,
 			Name:  product.Name,
 			Price: product.Price,
@@ -45,44 +32,26 @@ func (h *Handler) GetProducts(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Products retrieved successfully"
+	Response.Data = productItems
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
-	type PriceDetails struct {
-		Basic    []repositories.PricePeriod `json:"basic"`
-		Gold     []repositories.PricePeriod `json:"gold"`
-		Platinum []repositories.PricePeriod `json:"platinum"`
-		Titanium []repositories.PricePeriod `json:"titanium"`
-	}
-	type BenefitCategory struct {
-		Desc   string                       `json:"desc"`
-		Detail []repositories.BenefitDetail `json:"detail"`
-	}
-	type Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Name        string            `json:"name"`
-			Description string            `json:"desc"`
-			Image       string            `json:"image"`
-			Terms       string            `json:"tnc"`
-			Types       []string          `json:"type"`
-			Countries   string            `json:"countries"`
-			Price       PriceDetails      `json:"price"`
-			Benefits    []BenefitCategory `json:"benefits"`
-		} `json:"data"`
-	}
+	var Response dto.BaseResponse
 
 	id := r.URL.Query().Get("id")
 	if id == "" {
-		helpers.ResponseJSON(w, http.StatusBadRequest, map[string]string{"message": "Product ID is required"})
+		Response.Status = false
+		Response.Message = "Product ID is required"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
 	product, err := h.ProductRepo.FindSafariByCode(id)
 	if err != nil {
-		helpers.ResponseJSON(w, http.StatusNotFound, map[string]string{"message": "Product not found"})
+		Response.Status = false
+		Response.Message = "Product not found"
+		helpers.ResponseJSON(w, http.StatusNotFound, Response)
 		return
 	}
 
@@ -90,11 +59,13 @@ func (h *Handler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
 
 	contributions, err := h.ProductRepo.FindSafariContributionsByGroupCode(groupCode)
 	if err != nil {
-		http.Error(w, "Failed to retrieve contributions", http.StatusInternalServerError)
+		Response.Status = false
+		Response.Message = "Failed to retrieve contributions"
+		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
-	var priceDetails PriceDetails
+	var priceDetails dto.ProductPriceDetailsDTO
 	priceCategories := []string{"Basic", "Gold", "Platinum", "Titanium"}
 	for _, category := range priceCategories {
 		prices, _ := h.ProductRepo.FindSafariPriceDetails(groupCode, category)
@@ -110,97 +81,62 @@ func (h *Handler) GetProductDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var benefits []BenefitCategory
+	var benefits []dto.BenefitCategoryDTO
 	distinctDesc, _ := h.ProductRepo.FindDistinctSafariBenefitDescriptions(groupCode)
 	for _, desc := range distinctDesc {
 		benefitDetails, _ := h.ProductRepo.FindSafariBenefitDetails(groupCode, desc)
-		benefits = append(benefits, BenefitCategory{
+		benefits = append(benefits, dto.BenefitCategoryDTO{
 			Desc:   desc,
 			Detail: benefitDetails,
 		})
 	}
 
-	response := Response{
-		Status:  true,
-		Message: "Product details retrieved successfully",
+	productDetail := dto.GetProductDetailResponseDTO{
+		Name:        product.Name,
+		Description: product.Description,
+		Image:       h.Config.BaseUrl + "/upload/product/" + product.Image,
+		Terms:       product.Terms,
+		Countries:   product.Countries,
+		Price:       priceDetails,
+		Benefits:    benefits,
+		Types:       contributions,
 	}
-	response.Data.Name = product.Name
-	response.Data.Description = product.Description
-	response.Data.Image = h.Config.BaseUrl + "/upload/product/" + product.Image
-	response.Data.Terms = product.Terms
-	response.Data.Countries = product.Countries
-	response.Data.Price = priceDetails
-	response.Data.Benefits = benefits
-	response.Data.Types = contributions
 
-	helpers.ResponseJSON(w, http.StatusOK, response)
+	Response.Status = true
+	Response.Message = "Product details retrieved successfully"
+	Response.Data = productDetail
+	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetAbrorDetail(w http.ResponseWriter, r *http.Request) {
-	type PricePeriod struct {
-		C          string  `json:"c"`
-		RangePrice string  `json:"range_price"`
-		A1         float32 `json:"a1"`
-		A2         float32 `json:"a2"`
-		A3         float32 `json:"a3"`
-	}
-	type PriceDetails struct {
-		Standard []PricePeriod `json:"standard"`
-		Premium  []PricePeriod `json:"premium"`
-	}
-	type BenefitDetail struct {
-		Standard string `json:"standard"`
-		Premium  string `json:"premium"`
-	}
-	type BenefitCategory struct {
-		Desc   string          `json:"desc"`
-		Type   string          `json:"type"`
-		Detail []BenefitDetail `json:"detail"`
-	}
-	type Cars struct {
-		Brand string   `json:"brand"`
-		Type  []string `json:"type"`
-	}
-	type ResponseData struct {
-		Name        string            `json:"name"`
-		Description string            `json:"desc"`
-		Image       string            `json:"image"`
-		Terms       string            `json:"terms"`
-		Cars        []Cars            `json:"cars"`
-		Price       PriceDetails      `json:"price"`
-		Benefits    []BenefitCategory `json:"benefits"`
-	}
-	var Response struct {
-		Status  bool         `json:"status"`
-		Message string       `json:"message"`
-		Data    ResponseData `json:"data"`
-	}
+	var Response dto.BaseResponse
+	var abrorDetail dto.GetAbrorDetailResponseDTO
 
-	handleError := func(msg string) {
+	handleError := func(msg string, statusCode int) {
 		Response.Status = false
 		Response.Message = msg
-		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
+		helpers.ResponseJSON(w, statusCode, Response)
 	}
 
 	product, err := h.ProductRepo.FindFirstAbror()
 	if err != nil {
-		handleError("Error retrieving base product")
+		handleError("Error retrieving base product", http.StatusInternalServerError)
 		return
 	}
-	Response.Data.Name = product.Name
-	Response.Data.Description = product.Description
-	Response.Data.Image = h.Config.BaseUrl + "/upload/product/" + product.Image
-	Response.Data.Terms = product.AllowedVehicle
+	abrorDetail.Name = product.Name
+	abrorDetail.Description = product.Description
+	abrorDetail.Image = h.Config.BaseUrl + "/upload/product/" + product.Image
+	abrorDetail.Terms = product.AllowedVehicle
 
 	vehicleTypes, err := h.ProductRepo.FindAllVehicleTypes()
 	if err != nil {
-		handleError("Error fetching vehicle types")
+		handleError("Error fetching vehicle types", http.StatusInternalServerError)
 		return
 	}
 
 	standardProducts, err := h.ProductRepo.FindAbrorProductsByTypeName("Standard")
 	if err != nil {
-		handleError("Error fetching standard products")
+		handleError("Error fetching standard products", http.StatusInternalServerError)
 		return
 	}
 	standardProductMap := make(map[string]map[string]float32)
@@ -211,7 +147,7 @@ func (h *Handler) GetAbrorDetail(w http.ResponseWriter, r *http.Request) {
 		standardProductMap[pa.VehicleCode][pa.RegionCode] = pa.Percentage
 	}
 	for _, vt := range vehicleTypes {
-		Response.Data.Price.Standard = append(Response.Data.Price.Standard, PricePeriod{
+		abrorDetail.Price.Standard = append(abrorDetail.Price.Standard, dto.AbrorPricePeriodDTO{
 			C:          vt.Code,
 			RangePrice: fmt.Sprintf("(%d-%d)", vt.Min, vt.Max),
 			A1:         standardProductMap[vt.Code]["A1"],
@@ -222,7 +158,7 @@ func (h *Handler) GetAbrorDetail(w http.ResponseWriter, r *http.Request) {
 
 	premiumProducts, err := h.ProductRepo.FindAbrorProductsByTypeName("Premium")
 	if err != nil {
-		handleError("Error fetching premium products")
+		handleError("Error fetching premium products", http.StatusInternalServerError)
 		return
 	}
 	premiumProductMap := make(map[string]map[string]float32)
@@ -233,7 +169,7 @@ func (h *Handler) GetAbrorDetail(w http.ResponseWriter, r *http.Request) {
 		premiumProductMap[pa.VehicleCode][pa.RegionCode] = pa.Percentage
 	}
 	for _, vt := range vehicleTypes {
-		Response.Data.Price.Premium = append(Response.Data.Price.Premium, PricePeriod{
+		abrorDetail.Price.Premium = append(abrorDetail.Price.Premium, dto.AbrorPricePeriodDTO{
 			C:          vt.Code,
 			RangePrice: fmt.Sprintf("(%d-%d)", vt.Min, vt.Max),
 			A1:         premiumProductMap[vt.Code]["A1"],
@@ -244,16 +180,16 @@ func (h *Handler) GetAbrorDetail(w http.ResponseWriter, r *http.Request) {
 
 	brands, err := h.ProductRepo.FindAllCarBrands()
 	if err != nil {
-		handleError("Error fetching car brands")
+		handleError("Error fetching car brands", http.StatusInternalServerError)
 		return
 	}
 	for _, brand := range brands {
 		types, err := h.ProductRepo.FindCarTypesByBrand(brand)
 		if err != nil {
-			handleError("Error fetching car types for brand " + brand)
+			handleError("Error fetching car types for brand "+brand, http.StatusInternalServerError)
 			return
 		}
-		Response.Data.Cars = append(Response.Data.Cars, Cars{
+		abrorDetail.Cars = append(abrorDetail.Cars, dto.CarDetailsDTO{
 			Brand: brand,
 			Type:  types,
 		})
@@ -261,51 +197,39 @@ func (h *Handler) GetAbrorDetail(w http.ResponseWriter, r *http.Request) {
 
 	benefits, err := h.ProductRepo.FindAllAbrorBenefits()
 	if err != nil {
-		handleError("Error fetching benefits")
+		handleError("Error fetching benefits", http.StatusInternalServerError)
 		return
 	}
-	benefitMap := make(map[string]BenefitCategory)
+	benefitMap := make(map[string]dto.AbrorBenefitCategoryDTO)
 	for _, benefit := range benefits {
 		key := benefit.Description + "_" + benefit.Type
 		if category, exists := benefitMap[key]; exists {
-			category.Detail = append(category.Detail, BenefitDetail{Standard: benefit.Standard, Premium: benefit.Premium})
+			category.Detail = append(category.Detail, dto.AbrorBenefitDetailDTO{Standard: benefit.Standard, Premium: benefit.Premium})
 			benefitMap[key] = category
 		} else {
-			benefitMap[key] = BenefitCategory{
+			benefitMap[key] = dto.AbrorBenefitCategoryDTO{
 				Desc:   benefit.Description,
 				Type:   benefit.Type,
-				Detail: []BenefitDetail{{Standard: benefit.Standard, Premium: benefit.Premium}},
+				Detail: []dto.AbrorBenefitDetailDTO{{Standard: benefit.Standard, Premium: benefit.Premium}},
 			}
 		}
 	}
 	for _, category := range benefitMap {
-		Response.Data.Benefits = append(Response.Data.Benefits, category)
+		abrorDetail.Benefits = append(abrorDetail.Benefits, category)
 	}
 
 	Response.Status = true
 	Response.Message = "Product details retrieved successfully"
+	Response.Data = abrorDetail
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetAbrorPrice(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		Contribution string `json:"contribution"`
-		Type         string `json:"type"`
-		PlatCode     string `json:"plat_code"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			ProductCode  string  `json:"product_code"`
-			Price        int     `json:"price"`
-			Percentage   float32 `json:"percentage"`
-			VehiclePrice int     `json:"vehicle_price"`
-		} `json:"data"`
-	}
+	var requestDTO dto.GetAbrorPriceRequestDTO
+	var Response dto.BaseResponse
 
 	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&Request); err != nil {
+	if err := decoder.Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request payload"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -313,7 +237,7 @@ func (h *Handler) GetAbrorPrice(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	vehicle, err := h.ProductRepo.FindCarByName(Request.Type)
+	vehicle, err := h.ProductRepo.FindCarByName(requestDTO.Type)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving car"
@@ -329,7 +253,7 @@ func (h *Handler) GetAbrorPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plat := helpers.ExtractPlateCode(Request.PlatCode)
+	plat := helpers.ExtractPlateCode(requestDTO.PlatCode)
 	region, err := h.ProductRepo.FindRegionByPlat(plat)
 	if err != nil {
 		Response.Status = false
@@ -338,7 +262,7 @@ func (h *Handler) GetAbrorPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	product, err := h.ProductRepo.FindAbrorProductByCriteria(Request.Contribution, region.Code, vehicleType.Code)
+	product, err := h.ProductRepo.FindAbrorProductByCriteria(requestDTO.Contribution, region.Code, vehicleType.Code)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving product"
@@ -348,29 +272,25 @@ func (h *Handler) GetAbrorPrice(w http.ResponseWriter, r *http.Request) {
 
 	price := product.Percentage / 100 * float32(vehicle.Price)
 
-	Response.Data.ProductCode = product.Code
-	Response.Data.Price = int(price)
-	Response.Data.Percentage = product.Percentage
-	Response.Data.VehiclePrice = vehicle.Price
+	abrorPriceResponse := dto.GetAbrorPriceResponseDTO{
+		ProductCode: product.Code,
+		Price:       int(price),
+		Percentage:  product.Percentage,
+		VehiclePrice: vehicle.Price,
+	}
+
 	Response.Status = true
 	Response.Message = "Product retrieved successfully"
+	Response.Data = abrorPriceResponse
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetDayMax(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		GroupCode string `json:"group_code"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			DayMax int `json:"day_max"`
-		} `json:"data"`
-	}
+	var requestDTO dto.GetDayMaxRequestDTO
+	var Response dto.BaseResponse
 
 	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&Request); err != nil {
+	if err := decoder.Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request payload"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -378,7 +298,7 @@ func (h *Handler) GetDayMax(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	price, err := h.ProductRepo.FindSafariWithMaxDay(Request.GroupCode)
+	price, err := h.ProductRepo.FindSafariWithMaxDay(requestDTO.GroupCode)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving product"
@@ -386,20 +306,18 @@ func (h *Handler) GetDayMax(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Response.Data.DayMax = price.DayMax
+	dayMaxResponse := dto.GetDayMaxResponseDTO{
+		DayMax: price.DayMax,
+	}
+
 	Response.Status = true
 	Response.Message = "Product retrieved successfully"
+	Response.Data = dayMaxResponse
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetCountries(w http.ResponseWriter, r *http.Request) {
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Countries string `json:"countries"`
-		} `json:"data"`
-	}
+	var Response dto.BaseResponse
 
 	countries, err := h.ProductRepo.FindLongestCountries()
 
@@ -410,18 +328,18 @@ func (h *Handler) GetCountries(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Response.Data.Countries = countries
+	countriesResponse := dto.GetCountriesResponseDTO{
+		Countries: countries,
+	}
+
 	Response.Status = true
 	Response.Message = "Country retrieved successfully"
+	Response.Data = countriesResponse
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetCars(w http.ResponseWriter, r *http.Request) {
-	var Response struct {
-		Status  bool     `json:"status"`
-		Message string   `json:"message"`
-		Data    []string `json:"data"`
-	}
+	var Response dto.BaseResponse
 
 	carNames, err := h.ProductRepo.FindAllCarNames()
 	if err != nil {
@@ -438,30 +356,18 @@ func (h *Handler) GetCars(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) GetSafariPrice(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		GroupCode string `json:"group_code"`
-		Type      string `json:"type"`
-		Period    int    `json:"period"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Code  string `json:"code"`
-			Price int    `json:"price"`
-			Name  string `json:"name"`
-		} `json:"data"`
-	}
+	var requestDTO dto.GetSafariPriceRequestDTO
+	var Response dto.BaseResponse
 
 	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&Request); err != nil {
+	if err := decoder.Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request payload"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 	defer r.Body.Close()
-	product, err := h.ProductRepo.FindSafariPrice(Request.GroupCode, Request.Type, Request.Period)
+	product, err := h.ProductRepo.FindSafariPrice(requestDTO.GroupCode, requestDTO.Type, requestDTO.Period)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error retrieving product"
@@ -469,10 +375,14 @@ func (h *Handler) GetSafariPrice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Response.Data.Code = product.Code
-	Response.Data.Price = product.Price
-	Response.Data.Name = product.Name
+	safariPriceResponse := dto.GetSafariPriceResponseDTO{
+		Code:  product.Code,
+		Price: product.Price,
+		Name:  product.Name,
+	}
+
 	Response.Status = true
 	Response.Message = "Product retrieved successfully"
+	Response.Data = safariPriceResponse
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }

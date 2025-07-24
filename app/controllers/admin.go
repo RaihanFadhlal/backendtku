@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"backendtku/app/dto"
 	"backendtku/app/helpers"
 	"backendtku/app/middleware"
 	"backendtku/app/models"
@@ -15,32 +16,10 @@ import (
 )
 
 func (h *Handler) GetClaimSafariAll(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		PolicyId     string `json:"policy_id"`
-		ProductName  string `json:"product_name"`
-		DateReport   string `json:"date_report"`
-		RegistrantId string `json:"registrant_id"`
-		Status       string `json:"status"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    []struct {
-			ClaimId      string `json:"claim_id"`
-			PolicyId     string `json:"policy_id"`
-			ProductName  string `json:"product_name"`
-			DateReport   string `json:"date_report"`
-			DateAccident string `json:"date_accident"`
-			Status       string `json:"status"`
-			Image        string `json:"image"`
-			Evidence     string `json:"evidence"`
-			Detail       string `json:"detail"`
-			PolicyPdf    string `json:"policy_pdf"`
-			RegistrantId string `json:"registrant_id"`
-		} `json:"data"`
-	}
+	var requestDTO dto.GetClaimSafariAllRequestDTO
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request body"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -65,11 +44,11 @@ func (h *Handler) GetClaimSafariAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filters := map[string]string{
-		"policy_id":      Request.PolicyId,
-		"product_name":   Request.ProductName,
-		"date_report":    Request.DateReport,
-		"registrant_id":  Request.RegistrantId,
-		"status":         Request.Status,
+		"policy_id":      requestDTO.PolicyId,
+		"product_name":   requestDTO.ProductName,
+		"date_report":    requestDTO.DateReport,
+		"registrant_id":  requestDTO.RegistrantId,
+		"status":         requestDTO.Status,
 	}
 
 	claims, err := h.ClaimRepo.GetAdminClaimsSafari(filters)
@@ -80,6 +59,7 @@ func (h *Handler) GetClaimSafariAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var claimItems []dto.GetClaimSafariAllResponseItemDTO
 	for _, claim := range claims {
 		image, err := h.ProductRepo.FindProductImageByName(claim.ProductName)
 		if err != nil {
@@ -88,19 +68,7 @@ func (h *Handler) GetClaimSafariAll(w http.ResponseWriter, r *http.Request) {
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
-		Response.Data = append(Response.Data, struct {
-			ClaimId      string `json:"claim_id"`
-			PolicyId     string `json:"policy_id"`
-			ProductName  string `json:"product_name"`
-			DateReport   string `json:"date_report"`
-			DateAccident string `json:"date_accident"`
-			Status       string `json:"status"`
-			Image        string `json:"image"`
-			Evidence     string `json:"evidence"`
-			Detail       string `json:"detail"`
-			PolicyPdf    string `json:"policy_pdf"`
-			RegistrantId string `json:"registrant_id"`
-		}{
+		claimItems = append(claimItems, dto.GetClaimSafariAllResponseItemDTO{
 			ClaimId:      claim.ClaimId,
 			PolicyId:     claim.PolicyId,
 			ProductName:  claim.ProductName,
@@ -117,35 +85,15 @@ func (h *Handler) GetClaimSafariAll(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Products retrieved successfully"
+	Response.Data = claimItems
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) GetClaimAbrorAll(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		PolicyId   string `json:"policy_id"`
-		DateReport string `json:"date_report"`
-		RegistrantId string `json:"registrant_id"`
-		Status     string `json:"status"`
-	}
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    []struct {
-			ClaimId      string `json:"claim_id"`
-			PolicyId     string `json:"policy_id"`
-			ProductName  string `json:"product_name"`
-			DateReport   string `json:"date_report"`
-			DateAccident string `json:"date_accident"`
-			Status       string `json:"status"`
-			Image        string `json:"image"`
-			Evidence     string `json:"evidence"`
-			Detail       string `json:"detail"`
-			PolicyPdf    string `json:"policy_pdf"`
-			RegistrantId string `json:"registrant_id"`
-		} `json:"data"`
-	}
+	var requestDTO dto.GetClaimAbrorAllRequestDTO
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request body"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -170,10 +118,10 @@ func (h *Handler) GetClaimAbrorAll(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filters := map[string]string{
-		"policy_id":     Request.PolicyId,
-		"date_report":   Request.DateReport,
-		"registrant_id": Request.RegistrantId,
-		"status":        Request.Status,
+		"policy_id":     requestDTO.PolicyId,
+		"date_report":   requestDTO.DateReport,
+		"registrant_id": requestDTO.RegistrantId,
+		"status":        requestDTO.Status,
 	}
 
 	claims, err := h.ClaimRepo.GetAdminClaimsAbror(filters)
@@ -184,6 +132,7 @@ func (h *Handler) GetClaimAbrorAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var claimItems []dto.GetClaimAbrorAllResponseItemDTO
 	for _, claim := range claims {
 		image, err := h.ProductRepo.FindProductAbrorImageByName(claim.ProductName)
 		if err != nil {
@@ -192,19 +141,7 @@ func (h *Handler) GetClaimAbrorAll(w http.ResponseWriter, r *http.Request) {
 			helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 			return
 		}
-		Response.Data = append(Response.Data, struct {
-			ClaimId      string `json:"claim_id"`
-			PolicyId     string `json:"policy_id"`
-			ProductName  string `json:"product_name"`
-			DateReport   string `json:"date_report"`
-			DateAccident string `json:"date_accident"`
-			Status       string `json:"status"`
-			Image        string `json:"image"`
-			Evidence     string `json:"evidence"`
-			Detail       string `json:"detail"`
-			PolicyPdf    string `json:"policy_pdf"`
-			RegistrantId string `json:"registrant_id"`
-		}{
+		claimItems = append(claimItems, dto.GetClaimAbrorAllResponseItemDTO{
 			ClaimId:      claim.ClaimId,
 			PolicyId:     claim.PolicyId,
 			ProductName:  claim.ProductName,
@@ -221,26 +158,18 @@ func (h *Handler) GetClaimAbrorAll(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Products retrieved successfully"
+	Response.Data = claimItems
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
     claimType := mux.Vars(r)["type"]
 	
-	var Request struct {
-		Status    string `json:"status"`
-		Message   string `json:"message"`
-		CoverCost int    `json:"cover_cost"`
-		PayProof  string `json:"pay_proof"`
-		ClaimId   string `json:"claim_id"`
-	}
+	var requestDTO dto.UpdateClaimRequestDTO
 
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-	}
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request payload"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -268,9 +197,9 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 
 	switch claimType {
 	case "safari":
-		claim, err = h.ClaimRepo.FindClaimSafariByID(Request.ClaimId)
+		claim, err = h.ClaimRepo.FindClaimSafariByID(requestDTO.ClaimId)
 	case "abror":
-		claim, err = h.ClaimRepo.FindClaimAbrorByID(Request.ClaimId)
+		claim, err = h.ClaimRepo.FindClaimAbrorByID(requestDTO.ClaimId)
 	default:
 		Response.Status = false
 		Response.Message = "Invalid claim type"
@@ -287,18 +216,18 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 
 	switch c := claim.(type) {
 	case *models.ClaimSafari:
-		c.Status = Request.Status
-		c.Message = Request.Message
-		c.CoverCost = Request.CoverCost
+		c.Status = requestDTO.Status
+		c.Message = requestDTO.Message
+		c.CoverCost = requestDTO.CoverCost
 	case *models.ClaimAbror:
-		c.Status = Request.Status
-		c.Message = Request.Message
-		c.CoverCost = Request.CoverCost
+		c.Status = requestDTO.Status
+		c.Message = requestDTO.Message
+		c.CoverCost = requestDTO.CoverCost
 	}
 
-	if Request.PayProof != "" {
-		imageFormat := helpers.GetTypeBase64(Request.PayProof)
-		imageName := "ClaimProof-" + Request.ClaimId + imageFormat
+	if requestDTO.PayProof != "" {
+		imageFormat := helpers.GetTypeBase64(requestDTO.PayProof)
+		imageName := "ClaimProof-" + requestDTO.ClaimId + imageFormat
 
 		var count int64
 		if claimType == "safari" {
@@ -313,7 +242,7 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 				count++
-				imageName = fmt.Sprintf("ClaimProof-%s%d%s", Request.ClaimId, count, imageFormat)
+				imageName = fmt.Sprintf("ClaimProof-%s%d%s", requestDTO.ClaimId, count, imageFormat)
 			}
 		} else if claimType == "abror" {
 			for {
@@ -327,11 +256,11 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 				count++
-				imageName = fmt.Sprintf("ClaimProof-%s%d%s", Request.ClaimId, count, imageFormat)
+				imageName = fmt.Sprintf("ClaimProof-%s%d%s", requestDTO.ClaimId, count, imageFormat)
 			}
 		}
 
-		decodedImage, err := base64.StdEncoding.DecodeString(Request.PayProof)
+		decodedImage, err := base64.StdEncoding.DecodeString(requestDTO.PayProof)
 		if err != nil {
 			Response.Status = false
 			Response.Message = "Failed to decode image"
@@ -364,5 +293,6 @@ func (h *Handler) UpdateClaim(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Claim updated successfully"
+	Response.Data = nil // No specific data to return for a successful update
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }

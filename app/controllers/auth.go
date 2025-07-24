@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"backendtku/app/dto"
 	"backendtku/app/helpers"
 	"backendtku/app/middleware"
 	"backendtku/app/models"
@@ -17,22 +18,12 @@ import (
 )
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		Name     string `json:"name"`
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	var requestDTO dto.RegisterRequestDTO
 
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			Email string `json:"email"`
-		} `json:"data"`
-	}
+	var Response dto.BaseResponse
 
 	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&Request); err != nil {
+	if err := decoder.Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = err.Error()
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -40,7 +31,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	hashPassword, err := bcrypt.GenerateFromPassword([]byte(Request.Password), bcrypt.DefaultCost)
+	hashPassword, err := bcrypt.GenerateFromPassword([]byte(requestDTO.Password), bcrypt.DefaultCost)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error : Gagal Hashing Password"
@@ -48,7 +39,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := middleware.GenerateToken(Request.Email, 24*time.Hour)
+	token, err := middleware.GenerateToken(requestDTO.Email, 24*time.Hour)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error : Gagal Membuat Token Verifikasi"
@@ -58,8 +49,8 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	user := &models.User{
 		ID:        uuid.New(),
-		Name:      Request.Name,
-		Email:     Request.Email,
+		Name:      requestDTO.Name,
+		Email:     requestDTO.Email,
 		Password:  string(hashPassword),
 		VerificationToken: token,
 		CreatedAt: time.Now(),
@@ -131,14 +122,18 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Registrasi Berhasil, Cek Email Untuk Verifikasi Akun!"
-	Response.Data.Email = user.Email
+	Response.Data = map[string]string{"email": user.Email}
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var Response dto.BaseResponse
+
 	tokenString := r.URL.Query().Get("token")
 	if tokenString == "" {
-		helpers.ResponseJSON(w, http.StatusBadRequest, map[string]string{"message": "Token is required"})
+		Response.Status = false
+		Response.Message = "Token is required"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
@@ -148,20 +143,26 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil || !token.Valid {
-		helpers.ResponseJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid token"})
+		Response.Status = false
+		Response.Message = "Invalid token"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
 	user, err := h.UserRepo.FindByEmailAndVerificationToken(claims.Email, tokenString)
 	if err != nil {
-			helpers.ResponseJSON(w, http.StatusBadRequest, map[string]string{"message": "Invalid token"})
-			return
+		Response.Status = false
+		Response.Message = "Invalid token"
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
+		return
 	}
 
 	user.IsVerified = true
 	user.VerificationToken = ""
 	if err := h.UserRepo.Save(user); err != nil {
-		helpers.ResponseJSON(w, http.StatusInternalServerError, map[string]string{"message": "Error verifying email"})
+		Response.Status = false
+		Response.Message = "Error verifying email"
+		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
@@ -170,21 +171,12 @@ func (h *Handler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		Email    string `json:"email"`
-		Password string `json:"password"`
-	}
+	var requestDTO dto.LoginRequestDTO
 
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-		Data    struct {
-			AccessToken string `json:"access_token"`
-		} `json:"data"`
-	}
+	var Response dto.BaseResponse
 
 	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&Request); err != nil {
+	if err := decoder.Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = err.Error()
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -192,7 +184,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 	defer r.Body.Close()
 
-	user, err := h.UserRepo.FindByEmail(Request.Email);
+	user, err := h.UserRepo.FindByEmail(requestDTO.Email)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Invalid email or password"
@@ -207,14 +199,14 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(Request.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(requestDTO.Password)); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid email or password"
 		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
 		return
 	}
 
-	accessToken, err := middleware.GenerateToken(Request.Email, 15*time.Minute)
+	accessToken, err := middleware.GenerateToken(requestDTO.Email, 15*time.Minute)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error generating access token"
@@ -222,7 +214,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	refreshToken, err := middleware.GenerateToken(Request.Email, 7*24*time.Hour)
+	refreshToken, err := middleware.GenerateToken(requestDTO.Email, 7*24*time.Hour)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error generating refresh token"
@@ -254,28 +246,38 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		SameSite: http.SameSiteLaxMode,
 	})
 
+	loginResponseData := dto.LoginResponseDTO{
+		AccessToken: accessToken,
+	}
+
 	if user.Type == "admin" {
 		Response.Status = true
 		Response.Message = "admin"
-		Response.Data.AccessToken = accessToken
+		Response.Data = loginResponseData
 		helpers.ResponseJSON(w, http.StatusOK, Response)
 		return
 	}
 
 	Response.Status = true
 	Response.Message = "Login successful"
-	Response.Data.AccessToken = accessToken
+	Response.Data = loginResponseData
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	var Response dto.BaseResponse
+
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
 		if err == http.ErrNoCookie {
-			helpers.ResponseJSON(w, http.StatusUnauthorized, map[string]string{"message": "Refresh token required"})
+			Response.Status = false
+			Response.Message = "Refresh token required"
+			helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
 			return
 		}
-		helpers.ResponseJSON(w, http.StatusBadRequest, map[string]string{"message": err.Error()})
+		Response.Status = false
+		Response.Message = err.Error()
+		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
 		return
 	}
 
@@ -286,24 +288,28 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil || !token.Valid {
-		helpers.ResponseJSON(w, http.StatusUnauthorized, map[string]string{"message": "Invalid refresh token"})
+		Response.Status = false
+		Response.Message = "Invalid refresh token"
+		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
 		return
 	}
 
 	newAccessToken, err := middleware.GenerateToken(claims.Email, 15*time.Minute)
 	if err != nil {
-		helpers.ResponseJSON(w, http.StatusInternalServerError, map[string]string{"message": "Error generating access token"})
+		Response.Status = false
+		Response.Message = "Error generating access token"
+		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
 	}
 
-	helpers.ResponseJSON(w, http.StatusOK, map[string]string{"access_token": newAccessToken})
+	Response.Status = true
+	Response.Message = "Access token refreshed successfully"
+	Response.Data = map[string]string{"access_token": newAccessToken}
+	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-	}
+	var Response dto.BaseResponse
 
 	cookie, err := r.Cookie("refresh_token")
 	if err != nil {
@@ -362,21 +368,16 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 
 	Response.Status = true
 	Response.Message = "Logout successful"
+	Response.Data = nil // No specific data to return for a successful logout
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
 
 func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
-	var Request struct {
-		OldPassword string `json:"old_password"`
-		NewPassword string `json:"new_password"`
-	}
+	var requestDTO dto.ChangePasswordRequestDTO
 
-	var Response struct {
-		Status  bool   `json:"status"`
-		Message string `json:"message"`
-	}
+	var Response dto.BaseResponse
 
-	if err := json.NewDecoder(r.Body).Decode(&Request); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(&requestDTO); err != nil {
 		Response.Status = false
 		Response.Message = "Invalid request payload"
 		helpers.ResponseJSON(w, http.StatusBadRequest, Response)
@@ -392,14 +393,14 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 			return
 	}
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(Request.OldPassword)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(requestDTO.OldPassword)); err != nil {
 		Response.Status = false
 		Response.Message = "Old password is incorrect"
 		helpers.ResponseJSON(w, http.StatusUnauthorized, Response)
 		return
 	}
 
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(Request.NewPassword), bcrypt.DefaultCost)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(requestDTO.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		Response.Status = false
 		Response.Message = "Error hashing password"
@@ -413,9 +414,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		Response.Message = "Error updating password"
 		helpers.ResponseJSON(w, http.StatusInternalServerError, Response)
 		return
-}
+	}
 
 	Response.Status = true
 	Response.Message = "Password changed successfully"
+	Response.Data = nil // No specific data to return for a successful password change
 	helpers.ResponseJSON(w, http.StatusOK, Response)
 }
